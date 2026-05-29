@@ -188,6 +188,8 @@ const SHIP_EXPLOSION_EFFECT_MS = 520;
 const EXPLOSION_FRAME_COUNT = 10;
 const EXPLOSION_SEED_BUCKETS = 8;
 const EXPLOSION_FRAME_CACHE_LIMIT = 240;
+const MAX_ACTIVE_BATTLE_EFFECTS = 36;
+const EXPLOSION_EFFECT_POOL_SIZE = 48;
 const BATTLESHIP_RESPAWN_DELAY_MS = 3200;
 const BATTLESHIP_RESPAWN_INVULN_MS = 1200;
 const EARLY_ATTACK_SLOW_WINDOW_SEC = 70;
@@ -214,6 +216,8 @@ const KILL_SCORE_COMBO_STEP = 0.015;
 const KILL_SCORE_COMBO_MAX = 0.36;
 const projectileAngleOffsetCache = new Map();
 const explosionFrameCache = new Map();
+const warmedExplosionLevels = new Set();
+let explosionWarmupTail = Promise.resolve();
 
 const elements = {
   setupScreen: $('#setup-screen'),
@@ -824,6 +828,45 @@ function warmupCanvasPrimitives() {
   ctx.fill();
 }
 
+function getExplosionRadiusForLevel(level) {
+  const safeLevel = Math.max(1, Math.round(Number(level) || 1));
+  return SHIP_EXPLOSION_BASE_RADIUS + Math.max(0, safeLevel - 1) * SHIP_EXPLOSION_RADIUS_STEP;
+}
+
+async function warmupExplosionFramesForLevel(level) {
+  const safeLevel = Math.max(1, Math.round(Number(level) || 1));
+  if (warmedExplosionLevels.has(safeLevel)) return;
+  warmedExplosionLevels.add(safeLevel);
+  const effect = createPooledExplosionEffect();
+  effect.active = true;
+  effect.removed = false;
+  effect.radius = getExplosionRadiusForLevel(safeLevel);
+  effect.level = safeLevel;
+  let warmed = 0;
+  for (let seedBucket = 0; seedBucket < EXPLOSION_SEED_BUCKETS; seedBucket += 1) {
+    effect.seed = (seedBucket + 0.5) / EXPLOSION_SEED_BUCKETS;
+    for (let frameIndex = 0; frameIndex < EXPLOSION_FRAME_COUNT; frameIndex += 1) {
+      getExplosionFrameSprite(effect, (frameIndex + 0.5) / EXPLOSION_FRAME_COUNT);
+      warmed += 1;
+      if (warmed % 20 === 0) await nextPaint();
+    }
+  }
+}
+
+async function warmupExplosionFrames(levels = [1, 2]) {
+  for (const level of levels) {
+    await warmupExplosionFramesForLevel(level);
+  }
+}
+
+function queueExplosionFrameWarmup(level) {
+  const safeLevel = Math.max(1, Math.round(Number(level) || 1));
+  if (warmedExplosionLevels.has(safeLevel)) return;
+  explosionWarmupTail = explosionWarmupTail
+    .then(() => warmupExplosionFramesForLevel(safeLevel))
+    .catch(() => {});
+}
+
 async function warmupCombatAssets(updateProgress) {
   if (combatAssetsWarmed) return;
   updateProgress('거북선과 적 이미지를 불러오는 중', 0.18);
@@ -837,13 +880,16 @@ async function warmupCombatAssets(updateProgress) {
   updateProgress('전장 캔버스를 준비하는 중', 0.52);
   warmupCanvasPrimitives();
   await nextPaint();
+  updateProgress('폭발 효과를 미리 준비하는 중', 0.58);
+  await warmupExplosionFrames([1, 2]);
+  await nextPaint();
   combatAssetsWarmed = true;
 }
 
 async function warmupQuizAssets(questions, updateProgress) {
   const sources = collectQuizImageSources(questions);
   if (!sources.length) {
-    updateProgress('퀴즈 문제를 준비하는 중', 0.86);
+    updateProgress('퀴즈 문제를 준비하는 중', 0.9);
     await nextPaint();
     return;
   }
@@ -852,7 +898,7 @@ async function warmupQuizAssets(questions, updateProgress) {
     const chunk = sources.slice(index, index + chunkSize);
     await Promise.allSettled(chunk.map(preloadImageSrc));
     const doneRatio = Math.min(1, (index + chunk.length) / sources.length);
-    updateProgress(`퀴즈 이미지를 미리 불러오는 중 (${index + chunk.length}/${sources.length})`, 0.56 + doneRatio * 0.36);
+    updateProgress(`퀴즈 이미지를 미리 불러오는 중 (${index + chunk.length}/${sources.length})`, 0.62 + doneRatio * 0.3);
     await nextPaint();
   }
 }
@@ -965,6 +1011,9 @@ function createBattleState(playerIndex = 0) {
     projectiles: [],
     projectilesNeedCompact: false,
     effects: [],
+    effectsNeedCompact: false,
+    effectPool: createEffectPool(),
+    effectRecycleIndex: 0,
     random: null,
     spawnPlan: [],
     spawnPlanIndex: 0
@@ -1927,6 +1976,7 @@ function runShipUpgrade(action) {
     setBattleStatus(`관통 Lv.${ship.penetrationLevel} 강화`, 'success');
   } else if (action === 'explosion') {
     ship.explosionLevel += 1;
+    queueExplosionFrameWarmup(ship.explosionLevel);
     setBattleStatus(`폭발탄 Lv.${ship.explosionLevel} · 범위 ${getShipExplosionRadius()} · 주변 피해 ${Math.round(getShipExplosionDamageRatio() * 100)}%`, 'success');
   } else if (action === 'hull') {
     const hpGain = Math.round(SHIP_HULL_HP_STEP * (1 + ship.hullLevel * 0.08));
@@ -2713,25 +2763,94 @@ function getEnemySpatialCandidates(grid, x, y, radius) {
   return candidates;
 }
 
+function createPooledExplosionEffect(index = 0) {
+  return {
+    poolIndex: index,
+    id: '',
+    type: 'explosion',
+    active: false,
+    removed: true,
+    x: 0,
+    y: 0,
+    radius: 0,
+    level: 1,
+    damage: 0,
+    startedAtMs: 0,
+    durationMs: SHIP_EXPLOSION_EFFECT_MS,
+    seed: 0
+  };
+}
+
+function createEffectPool(size = EXPLOSION_EFFECT_POOL_SIZE) {
+  return Array.from({ length: size }, (_, index) => createPooledExplosionEffect(index));
+}
+
+function countActiveEffects(battle = session?.battle) {
+  if (!Array.isArray(battle?.effects)) return 0;
+  let count = 0;
+  for (let index = 0; index < battle.effects.length; index += 1) {
+    const effect = battle.effects[index];
+    if (effect && effect.active && !effect.removed) count += 1;
+  }
+  return count;
+}
+
+function markEffectRemoved(effect, battle = session?.battle) {
+  if (!effect) return;
+  effect.active = false;
+  effect.removed = true;
+  if (battle) battle.effectsNeedCompact = true;
+}
+
+function compactRemovedEffects(battle = session?.battle) {
+  if (!battle?.effectsNeedCompact) return;
+  battle.effects = battle.effects.filter((effect) => effect && effect.active && !effect.removed);
+  battle.effectsNeedCompact = false;
+}
+
+function acquireExplosionEffect(battle = session?.battle) {
+  if (!battle) return null;
+  if (!Array.isArray(battle.effects)) battle.effects = [];
+  if (!Array.isArray(battle.effectPool) || !battle.effectPool.length) {
+    battle.effectPool = createEffectPool();
+  }
+
+  const reusableRemoved = battle.effects.find((effect) => effect && effect.removed);
+  if (reusableRemoved) return reusableRemoved;
+
+  if (battle.effects.length >= MAX_ACTIVE_BATTLE_EFFECTS) {
+    const recycleIndex = clamp(Math.round(Number(battle.effectRecycleIndex) || 0), 0, Math.max(0, battle.effects.length - 1));
+    battle.effectRecycleIndex = (recycleIndex + 1) % Math.max(1, battle.effects.length);
+    return battle.effects[recycleIndex] || battle.effectPool[0] || null;
+  }
+
+  const pooled = battle.effectPool.find((effect) => effect && !effect.active);
+  if (pooled) {
+    battle.effects.push(pooled);
+    return pooled;
+  }
+
+  return battle.effects[0] || null;
+}
+
 function addExplosionEffect(x, y, radius, level = 1, damage = 0) {
   const battle = session?.battle;
   if (!battle || radius <= 0) return;
+  const effect = acquireExplosionEffect(battle);
+  if (!effect) return;
   battle.effectSerial += 1;
-  battle.effects.push({
-    id: `explosion-${battle.playerIndex}-${battle.effectSerial}`,
-    type: 'explosion',
-    x,
-    y,
-    radius,
-    level: Math.max(1, Number(level) || 1),
-    damage: Math.max(0, Math.round(Number(damage) || 0)),
-    startedAtMs: performance.now(),
-    durationMs: SHIP_EXPLOSION_EFFECT_MS,
-    seed: battleRandom()
-  });
-  if (battle.effects.length > 36) {
-    battle.effects.splice(0, battle.effects.length - 36);
-  }
+  effect.id = `explosion-${battle.playerIndex}-${battle.effectSerial}`;
+  effect.type = 'explosion';
+  effect.active = true;
+  effect.removed = false;
+  effect.x = x;
+  effect.y = y;
+  effect.radius = radius;
+  effect.level = Math.max(1, Number(level) || 1);
+  effect.damage = Math.max(0, Math.round(Number(damage) || 0));
+  effect.startedAtMs = performance.now();
+  effect.durationMs = SHIP_EXPLOSION_EFFECT_MS;
+  effect.seed = battleRandom();
 }
 
 function applyProjectileExplosion(projectile, sourceEnemyId, enemyGrid = null) {
@@ -2913,11 +3032,13 @@ function updateBattle(dtSec, nowMs) {
 
   for (let index = battle.effects.length - 1; index >= 0; index -= 1) {
     const effect = battle.effects[index];
+    if (!effect || effect.removed || !effect.active) continue;
     const durationMs = Math.max(1, Number(effect?.durationMs) || 1);
     if (nowMs - (Number(effect?.startedAtMs) || 0) >= durationMs) {
-      battle.effects.splice(index, 1);
+      markEffectRemoved(effect, battle);
     }
   }
+  compactRemovedEffects(battle);
 
   for (let index = battle.enemies.length - 1; index >= 0; index -= 1) {
     const enemy = battle.enemies[index];
@@ -3349,7 +3470,7 @@ function getEnemyBadge(enemy, variantStyle) {
 function getBattleRenderLoad(battle = session?.battle) {
   const enemyCount = Number(battle?.enemies?.length) || 0;
   const projectileCount = Number(battle?.projectiles?.length) || 0;
-  const effectCount = Number(battle?.effects?.length) || 0;
+  const effectCount = countActiveEffects(battle);
   const busy = enemyCount >= BUSY_RENDER_ENEMY_COUNT
     || projectileCount >= BUSY_RENDER_PROJECTILE_COUNT
     || effectCount >= 7;
@@ -3560,6 +3681,7 @@ function drawExplosionEffect(ctx, effect, nowMs) {
 function drawBattleEffects(ctx, effects, nowMs, width, height) {
   if (!Array.isArray(effects) || !effects.length) return;
   effects.forEach((effect) => {
+    if (!effect || effect.removed || !effect.active) return;
     if (!isDrawAreaVisible(effect?.x, effect?.y, effect?.radius, width, height, 12)) return;
     if (effect?.type === 'explosion') drawExplosionEffect(ctx, effect, nowMs);
   });
@@ -3672,7 +3794,7 @@ function drawBattle() {
 function getBattleDrawIntervalMs(battle) {
   if (!battle) return 0;
   const mapSize = Math.min(Number(battle.canvasWidth) || 0, Number(battle.canvasHeight) || 0);
-  const busyCombat = battle.projectiles.length >= 28 || battle.effects.length >= 6 || battle.enemies.length >= 18;
+  const busyCombat = battle.projectiles.length >= 28 || countActiveEffects(battle) >= 6 || battle.enemies.length >= 18;
   const busyQuiz = isTabletFaceToFaceSession()
     && session.playerQuizStates.some((quizState) => quizState.quizOpen);
   if (isTabletFaceToFaceSession() && (busyCombat || busyQuiz)) return 34;
@@ -4113,7 +4235,7 @@ window.__KNOLQUIZ_TEST__ = {
         x: Math.round(enemy.x),
         y: Math.round(enemy.y)
       })),
-      effects: battle.effects.map((effect) => ({
+      effects: battle.effects.filter((effect) => effect && effect.active && !effect.removed).map((effect) => ({
         type: effect.type,
         radius: Math.round(effect.radius),
         level: effect.level
