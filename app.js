@@ -196,10 +196,13 @@ const QUIZ_COMBO_SCORE_MAX = 0.72;
 const QUIZ_BURST_QUESTION_COUNT = 3;
 const QUIZ_AUTO_NEXT_DELAY_MS = 760;
 const QUIZ_AUTO_CLOSE_DELAY_MS = 920;
+const HUD_REFRESH_INTERVAL_MS = 140;
+const CANVAS_SYNC_INTERVAL_MS = 220;
 const KILL_SCORE_BASE = 25;
 const KILL_SCORE_TIER_STEP = 14;
 const KILL_SCORE_COMBO_STEP = 0.015;
 const KILL_SCORE_COMBO_MAX = 0.36;
+const projectileAngleOffsetCache = new Map();
 
 const elements = {
   setupScreen: $('#setup-screen'),
@@ -307,6 +310,12 @@ function clamp(value, min, max) {
 
 function distance(ax, ay, bx, by) {
   return Math.hypot(ax - bx, ay - by);
+}
+
+function distanceSq(ax, ay, bx, by) {
+  const dx = ax - bx;
+  const dy = ay - by;
+  return dx * dx + dy * dy;
 }
 
 function formatClock(totalSeconds) {
@@ -646,11 +655,16 @@ function createBattleState(playerIndex = 0) {
     playerIndex,
     running: false,
     lastFrameMs: performance.now(),
+    lastDrawMs: 0,
     spawnCooldownMs: SPAWN_START_COOLDOWN_MS,
     nextSpawnMs: 650,
     nextShotMs: 0,
     spawnSerial: 0,
     effectSerial: 0,
+    hudDirty: true,
+    lastHudRefreshMs: 0,
+    lastCanvasSyncMs: 0,
+    canvasShellSize: 0,
     worldElapsedMs: 0,
     canvasWidth: 0,
     canvasHeight: 0,
@@ -1138,13 +1152,9 @@ function getHullUpgradeCost() {
 function setBattleStatus(text, tone = '') {
   if (!session) return;
   const battle = session.battle;
-  const root = getBattleRoot(battle?.playerIndex || currentBattleIndex);
   battle.statusText = String(text || '').trim();
   battle.statusTone = tone;
-  $$('[data-ref="battle-status"]', root).forEach((toast) => {
-    toast.textContent = battle.statusText;
-    toast.className = `battle-status ${tone}`;
-  });
+  battle.hudDirty = true;
 }
 
 function renderPlayerChips() {
@@ -1367,12 +1377,20 @@ function setUpgradeButton(button, disabled, title, meta, cost) {
   if (!button) return;
   const compact = Boolean(button.closest('.battle-panel-tablet'));
   const detail = compact ? cost : `${meta} · ${cost}`;
-  button.disabled = disabled;
-  button.setAttribute('aria-label', `${title} ${meta} ${cost}`);
-  button.innerHTML = `
-    <span>${escapeHtml(title)}</span>
-    <small>${escapeHtml(detail)}</small>
-  `;
+  const nextDisabled = Boolean(disabled);
+  if (button.disabled !== nextDisabled) button.disabled = nextDisabled;
+  const ariaLabel = `${title} ${meta} ${cost}`;
+  if (button.getAttribute('aria-label') !== ariaLabel) {
+    button.setAttribute('aria-label', ariaLabel);
+  }
+  const signature = `${nextDisabled}|${title}|${detail}`;
+  if (button.dataset.renderSignature !== signature) {
+    button.dataset.renderSignature = signature;
+    button.innerHTML = `
+      <span>${escapeHtml(title)}</span>
+      <small>${escapeHtml(detail)}</small>
+    `;
+  }
 }
 
 function setUpgradeButtons(root, action, disabled, title, meta, cost) {
@@ -1381,16 +1399,25 @@ function setUpgradeButtons(root, action, disabled, title, meta, cost) {
   });
 }
 
-function refreshBattleHud(index = currentBattleIndex) {
+function refreshBattleHud(index = currentBattleIndex, options = {}) {
   if (!session) return;
   setBattleContext(index);
   const battle = session.battle;
+  const nowMs = Number(options.nowMs) || performance.now();
+  if (
+    options.passive
+    && nowMs - (Number(battle.lastHudRefreshMs) || 0) < HUD_REFRESH_INTERVAL_MS
+  ) {
+    return;
+  }
+  battle.lastHudRefreshMs = nowMs;
+  battle.hudDirty = false;
   const ship = battle.ship;
   const player = session.players[isSharedBattleSession() ? getSafePlayerIndex(index) : battle.playerIndex] || session.players[0];
   const root = getBattleRoot(index);
   const setText = (ref, text) => {
     $$(`[data-ref="${ref}"]`, root).forEach((node) => {
-      node.textContent = text;
+      if (node.textContent !== text) node.textContent = text;
     });
   };
 
@@ -1407,13 +1434,19 @@ function refreshBattleHud(index = currentBattleIndex) {
   setText('kill-combo', `${battle.score.kills} / x${battle.score.combo}`);
   setText('resource-score', battle.score.gold.toLocaleString('ko-KR'));
   setText('attack-stat', `${ship.attackPower} · ${ship.projectileCount}발`);
+  $$('[data-ref="battle-status"]', root).forEach((toast) => {
+    if (toast.textContent !== battle.statusText) toast.textContent = battle.statusText;
+    const className = `battle-status ${battle.statusTone || ''}`;
+    if (toast.className !== className) toast.className = className;
+  });
   const hpRatio = ship.maxHp > 0 ? clamp(ship.hp / ship.maxHp, 0, 1) : 0;
   $$('.ship-hp-stat', root).forEach((hpStatNode) => {
     hpStatNode.classList.toggle('is-warning', hpRatio <= 0.48 && hpRatio > 0.22);
     hpStatNode.classList.toggle('is-danger', hpRatio <= 0.22);
   });
   $$('[data-ref="ship-hp-fill"]', root).forEach((hpFill) => {
-    hpFill.style.width = `${Math.round(hpRatio * 100)}%`;
+    const width = `${Math.round(hpRatio * 100)}%`;
+    if (hpFill.style.width !== width) hpFill.style.width = width;
   });
 
   const quizButtons = $$('[data-action="quiz"]', root);
@@ -1425,15 +1458,23 @@ function refreshBattleHud(index = currentBattleIndex) {
       if (isSharedBattleSession()) {
         const quizPlayer = session.players[playerIndex] || session.players[0];
         quizButton.classList.toggle('is-active', Boolean(quizState?.quizOpen));
-        quizButton.setAttribute('aria-label', `${quizPlayer.name} ${quizState?.quizOpen ? '퀴즈 풀이 중' : '퀴즈 풀기'}`);
-        quizButton.innerHTML = `
+        const ariaLabel = `${quizPlayer.name} ${quizState?.quizOpen ? '퀴즈 풀이 중' : '퀴즈 풀기'}`;
+        if (quizButton.getAttribute('aria-label') !== ariaLabel) {
+          quizButton.setAttribute('aria-label', ariaLabel);
+        }
+        const signature = `${playerIndex}|${quizState?.quizOpen ? 'open' : 'idle'}`;
+        if (quizButton.dataset.renderSignature !== signature) {
+          quizButton.dataset.renderSignature = signature;
+          quizButton.innerHTML = `
           <span>${playerIndex + 1}P</span>
           <b>${quizState?.quizOpen ? '풀이 중' : '퀴즈 풀기'}</b>
         `;
+        }
       } else {
-        quizButton.textContent = quizState?.quizOpen
+        const text = quizState?.quizOpen
           ? '퀴즈 진행 중'
           : '퀴즈 열기';
+        if (quizButton.textContent !== text) quizButton.textContent = text;
       }
     });
   }
@@ -1500,7 +1541,10 @@ function refreshBattleHud(index = currentBattleIndex) {
 function refreshAllBattleHuds() {
   if (!session) return;
   const previousIndex = currentBattleIndex;
-  session.battles.forEach((battle) => refreshBattleHud(battle.playerIndex));
+  session.battles.forEach((battle) => {
+    battle.hudDirty = true;
+    refreshBattleHud(battle.playerIndex);
+  });
   setBattleContext(previousIndex);
 }
 
@@ -1963,14 +2007,26 @@ function submitAnswer(choice, battleIndex = currentBattleIndex) {
   scheduleQuizAutoProgress(battleIndex);
 }
 
-function syncCanvasSize() {
+function syncCanvasSize(options = {}) {
   if (!battleCanvas || !session) return;
+  const battle = session.battle;
+  const nowMs = Number(options.nowMs) || performance.now();
+  const force = Boolean(options.force);
+  if (
+    !force
+    && battle.canvasWidth > 0
+    && nowMs - (Number(battle.lastCanvasSyncMs) || 0) < CANVAS_SYNC_INTERVAL_MS
+  ) {
+    return;
+  }
+  battle.lastCanvasSyncMs = nowMs;
   const shell = battleCanvas.closest('.battlefield-shell');
   const slot = shell?.parentElement;
   if (shell && slot) {
     const slotRect = slot.getBoundingClientRect();
     const availableSize = Math.floor(Math.min(slotRect.width || 0, slotRect.height || 0));
-    if (availableSize > 0) {
+    if (availableSize > 0 && (force || Math.abs(availableSize - (Number(battle.canvasShellSize) || 0)) >= 1)) {
+      battle.canvasShellSize = availableSize;
       shell.style.width = `${availableSize}px`;
       shell.style.height = `${availableSize}px`;
     }
@@ -1995,7 +2051,7 @@ function syncCanvasSize() {
 function syncAllCanvasSizes() {
   if (!session) return;
   session.battles.forEach((battle) => {
-    withBattleContext(battle.playerIndex, () => syncCanvasSize());
+    withBattleContext(battle.playerIndex, () => syncCanvasSize({ force: true }));
   });
 }
 
@@ -2165,20 +2221,25 @@ function spawnEnemy(flow) {
 function getNearestEnemy() {
   const battle = session.battle;
   let nearest = null;
-  let nearestDist = Number.POSITIVE_INFINITY;
-  battle.enemies.forEach((enemy) => {
-    const dist = distance(battle.ship.x, battle.ship.y, enemy.x, enemy.y);
-    if (dist < nearestDist) {
+  let nearestDistSq = Number.POSITIVE_INFINITY;
+  for (let index = 0; index < battle.enemies.length; index += 1) {
+    const enemy = battle.enemies[index];
+    const distSq = distanceSq(battle.ship.x, battle.ship.y, enemy.x, enemy.y);
+    if (distSq < nearestDistSq) {
       nearest = enemy;
-      nearestDist = dist;
+      nearestDistSq = distSq;
     }
-  });
+  }
   return nearest;
 }
 
 function getProjectileAngleOffsets(count) {
   const total = Math.max(1, Number(count) || 1);
-  if (total <= 1) return [0];
+  if (projectileAngleOffsetCache.has(total)) return projectileAngleOffsetCache.get(total);
+  if (total <= 1) {
+    projectileAngleOffsetCache.set(total, [0]);
+    return projectileAngleOffsetCache.get(total);
+  }
   const offsets = [0];
   const maxOffset = total === 2 ? 0.065 : 0.13;
   const sidePairs = Math.ceil((total - 1) / 2);
@@ -2188,6 +2249,7 @@ function getProjectileAngleOffsets(count) {
     if (offsets.length < total) offsets.push(offset);
     if (offsets.length < total) offsets.push(-offset);
   }
+  projectileAngleOffsetCache.set(total, offsets);
   return offsets;
 }
 
@@ -2195,20 +2257,26 @@ function shootAt(target) {
   const battle = session.battle;
   const count = Math.max(1, battle.ship.projectileCount);
   const baseAngle = Math.atan2(target.y - battle.ship.y, target.x - battle.ship.x);
+  const penetrationHits = getShipPenetrationHits();
+  const explosionLevel = Math.max(0, battle.ship.explosionLevel);
+  const explosionRadius = getShipExplosionRadius();
+  const explosionDamageRatio = getShipExplosionDamageRatio();
   getProjectileAngleOffsets(count).forEach((offset) => {
     const angle = baseAngle + offset;
+    const cos = Math.cos(angle);
+    const sin = Math.sin(angle);
     battle.projectiles.push({
-      x: battle.ship.x + Math.cos(angle) * 34,
-      y: battle.ship.y + Math.sin(angle) * 34,
-      vx: Math.cos(angle) * 430,
-      vy: Math.sin(angle) * 430,
+      x: battle.ship.x + cos * 34,
+      y: battle.ship.y + sin * 34,
+      vx: cos * 430,
+      vy: sin * 430,
       radius: 6.5 + Math.min(2, battle.ship.attackPowerLevel * 0.18),
       damage: battle.ship.attackPower,
-      remainingHits: getShipPenetrationHits(),
-      explosionLevel: Math.max(0, battle.ship.explosionLevel),
-      explosionRadius: getShipExplosionRadius(),
-      explosionDamageRatio: getShipExplosionDamageRatio(),
-      hitEnemyIds: new Set()
+      remainingHits: penetrationHits,
+      explosionLevel,
+      explosionRadius,
+      explosionDamageRatio,
+      hitEnemyIds: penetrationHits > 0 ? new Set() : null
     });
   });
 }
@@ -2231,6 +2299,7 @@ function addKillReward(enemy) {
   if (isHardened) battle.score.hardenedKills += 1;
   if (enemy?.elite) battle.score.eliteKills += 1;
   battle.score.gold += 2 + tier + eliteBonus;
+  battle.hudDirty = true;
   if (enemy?.elite || isHardened) {
     setBattleStatus(`${enemy.elite ? '특수' : '강화'} 적 격퇴 · +${points}점`, 'success');
   }
@@ -2291,7 +2360,10 @@ function applyProjectileExplosion(projectile, sourceEnemyId) {
   for (let index = battle.enemies.length - 1; index >= 0; index -= 1) {
     const enemy = battle.enemies[index];
     if (!enemy || enemy.id === sourceEnemyId) continue;
-    const centerDistance = distance(impactX, impactY, enemy.x, enemy.y);
+    const maxDistance = radius + enemy.radius;
+    const centerDistanceSq = distanceSq(impactX, impactY, enemy.x, enemy.y);
+    if (centerDistanceSq > maxDistance * maxDistance) continue;
+    const centerDistance = Math.sqrt(centerDistanceSq);
     const edgeDistance = Math.max(0, centerDistance - enemy.radius);
     if (edgeDistance > radius) continue;
     const falloff = 1 - clamp(edgeDistance / Math.max(1, radius), 0, 1);
@@ -2316,7 +2388,10 @@ function triggerHullShockwave(touchEnemy, touchDamage) {
   for (let index = battle.enemies.length - 1; index >= 0; index -= 1) {
     const enemy = battle.enemies[index];
     if (!enemy || enemy.id === touchEnemy?.id) continue;
-    const dist = distance(battle.ship.x, battle.ship.y, enemy.x, enemy.y);
+    const maxDistance = radius + enemy.radius;
+    const distSq = distanceSq(battle.ship.x, battle.ship.y, enemy.x, enemy.y);
+    if (distSq > maxDistance * maxDistance) continue;
+    const dist = Math.sqrt(distSq);
     if (dist > radius + enemy.radius) continue;
     const falloff = 1 - clamp(dist / Math.max(radius, 1), 0, 0.78);
     const shockDamage = Math.max(1, Math.round(baseDamage * Math.max(0.3, falloff)));
@@ -2365,7 +2440,7 @@ function updateBattle(dtSec, nowMs) {
     finishSession();
     return;
   }
-  syncCanvasSize();
+  syncCanvasSize({ nowMs });
   const battle = session.battle;
   const ship = battle.ship;
   const worldDtSec = battle.quizOpen ? dtSec * BATTLE_QUIZ_WORLD_SLOW_RATIO : dtSec;
@@ -2414,9 +2489,10 @@ function updateBattle(dtSec, nowMs) {
     let hit = false;
     for (let enemyIndex = battle.enemies.length - 1; enemyIndex >= 0; enemyIndex -= 1) {
       const enemy = battle.enemies[enemyIndex];
-      if (projectile.hitEnemyIds instanceof Set && projectile.hitEnemyIds.has(enemy.id)) continue;
-      if (distance(projectile.x, projectile.y, enemy.x, enemy.y) > projectile.radius + enemy.radius) continue;
-      if (projectile.hitEnemyIds instanceof Set) projectile.hitEnemyIds.add(enemy.id);
+      if (projectile.hitEnemyIds && projectile.hitEnemyIds.has(enemy.id)) continue;
+      const hitRadius = projectile.radius + enemy.radius;
+      if (distanceSq(projectile.x, projectile.y, enemy.x, enemy.y) > hitRadius * hitRadius) continue;
+      if (projectile.hitEnemyIds) projectile.hitEnemyIds.add(enemy.id);
       const killed = applyDamageToEnemy(enemy, projectile.damage);
       applyProjectileExplosion(projectile, enemy.id);
       if (killed) {
@@ -2444,7 +2520,10 @@ function updateBattle(dtSec, nowMs) {
 
   for (let index = battle.enemies.length - 1; index >= 0; index -= 1) {
     const enemy = battle.enemies[index];
-    const baseAngle = Math.atan2(ship.y - enemy.y, ship.x - enemy.x);
+    const shipDx = ship.x - enemy.x;
+    const shipDy = ship.y - enemy.y;
+    const shipDistanceSq = shipDx * shipDx + shipDy * shipDy;
+    const baseAngle = Math.atan2(shipDy, shipDx);
     let angle = baseAngle;
     if (enemy.role === 'swarm' || enemy.role === 'splitter') {
       angle += Math.sin(battle.worldElapsedMs * 0.004 + enemy.wobbleSeed) * 0.42;
@@ -2452,7 +2531,7 @@ function updateBattle(dtSec, nowMs) {
     let speedMultiplier = 1;
     if (enemy.role === 'swarm') speedMultiplier *= 1.1;
     if (enemy.role === 'armored') speedMultiplier *= 0.94;
-    if (enemy.role === 'charger' && distance(enemy.x, enemy.y, ship.x, ship.y) < 165) speedMultiplier *= 1.7;
+    if (enemy.role === 'charger' && shipDistanceSq < 165 * 165) speedMultiplier *= 1.7;
     enemy.x += Math.cos(angle) * enemy.speed * speedMultiplier * worldDtSec;
     enemy.y += Math.sin(angle) * enemy.speed * speedMultiplier * worldDtSec;
 
@@ -2466,7 +2545,8 @@ function updateBattle(dtSec, nowMs) {
       enemy.hasBeenVisible = true;
     }
     if (!enemy.hasBeenVisible) continue;
-    if (distance(enemy.x, enemy.y, ship.x, ship.y) > enemy.radius + ship.radius) continue;
+    const touchRadius = enemy.radius + ship.radius;
+    if (distanceSq(enemy.x, enemy.y, ship.x, ship.y) > touchRadius * touchRadius) continue;
     if (isShipRespawning(nowMs) || isShipInvulnerable(nowMs)) continue;
     const touchDamage = Math.max(
       1,
@@ -2479,7 +2559,7 @@ function updateBattle(dtSec, nowMs) {
     if (ship.hp <= 0) triggerShipRespawn(nowMs);
   }
 
-  refreshBattleHud();
+  refreshBattleHud(currentBattleIndex, { passive: true, nowMs });
 }
 
 function drawBackground(ctx, width, height, elapsedSec) {
@@ -2902,10 +2982,10 @@ function drawBattleEffects(ctx, effects, nowMs) {
 
 function drawBattle() {
   if (!session || !battleCanvas || !battleCtx) return;
-  syncCanvasSize();
+  const nowMs = performance.now();
+  syncCanvasSize({ nowMs });
   const ctx = battleCtx;
   const battle = session.battle;
-  const nowMs = performance.now();
   const width = battle.canvasWidth;
   const height = battle.canvasHeight;
   ctx.clearRect(0, 0, width, height);
@@ -2968,6 +3048,23 @@ function drawBattle() {
   }
 }
 
+function getBattleDrawIntervalMs(battle) {
+  if (!battle) return 0;
+  const mapSize = Math.min(Number(battle.canvasWidth) || 0, Number(battle.canvasHeight) || 0);
+  const busyCombat = battle.projectiles.length >= 28 || battle.effects.length >= 6 || battle.enemies.length >= 18;
+  const busyQuiz = isTabletFaceToFaceSession()
+    && session.playerQuizStates.some((quizState) => quizState.quizOpen);
+  if (isTabletFaceToFaceSession() && (busyCombat || busyQuiz)) return 34;
+  if (mapSize >= 640 && busyCombat) return 24;
+  return 0;
+}
+
+function shouldDrawBattleFrame(battle, nowMs) {
+  const intervalMs = getBattleDrawIntervalMs(battle);
+  if (intervalMs <= 0) return true;
+  return !battle.lastDrawMs || nowMs - battle.lastDrawMs >= intervalMs;
+}
+
 function battleFrame(nowMs) {
   if (!session || session.endedAt) return;
   session.battles.forEach((battle) => {
@@ -2975,7 +3072,10 @@ function battleFrame(nowMs) {
       const dtMs = Math.min(50, Math.max(0, nowMs - battle.lastFrameMs));
       battle.lastFrameMs = nowMs;
       updateBattle(dtMs / 1000, nowMs);
-      drawBattle();
+      if (shouldDrawBattleFrame(battle, nowMs)) {
+        battle.lastDrawMs = nowMs;
+        drawBattle();
+      }
     });
   });
   if (!session || session.endedAt) return;
@@ -3389,6 +3489,8 @@ window.__KNOLQUIZ_TEST__ = {
         radius: Math.round(effect.radius),
         level: effect.level
       })),
+      projectileCount: battle.projectiles.length,
+      statusText: battle.statusText,
       ship: {
         hp: Math.round(battle.ship.hp),
         maxHp: battle.ship.maxHp,
