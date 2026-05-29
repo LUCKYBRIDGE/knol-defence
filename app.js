@@ -204,6 +204,10 @@ const CANVAS_SYNC_INTERVAL_MS = 220;
 const MIN_START_LOADING_MS = 850;
 const SPAWN_PLAN_BUFFER = 96;
 const ENEMY_SPATIAL_CELL_SIZE = 96;
+const BUSY_RENDER_ENEMY_COUNT = 14;
+const BUSY_RENDER_PROJECTILE_COUNT = 26;
+const VERY_BUSY_RENDER_ENEMY_COUNT = 22;
+const VERY_BUSY_RENDER_PROJECTILE_COUNT = 42;
 const KILL_SCORE_BASE = 25;
 const KILL_SCORE_TIER_STEP = 14;
 const KILL_SCORE_COMBO_STEP = 0.015;
@@ -896,6 +900,7 @@ function createBattleState(playerIndex = 0) {
     effectSerial: 0,
     hudDirty: true,
     lastHudRefreshMs: 0,
+    lastUpgradeRenderSignature: '',
     lastCanvasSyncMs: 0,
     canvasShellSize: 0,
     worldElapsedMs: 0,
@@ -958,6 +963,7 @@ function createBattleState(playerIndex = 0) {
     enemies: [],
     enemiesNeedCompact: false,
     projectiles: [],
+    projectilesNeedCompact: false,
     effects: [],
     random: null,
     spawnPlan: [],
@@ -1721,62 +1727,84 @@ function refreshBattleHud(index = currentBattleIndex, options = {}) {
   }
 
   const healCost = getHealCost();
-  setUpgradeButtons(
-    root,
-    'heal',
-    ship.hp >= ship.maxHp || battle.score.gold < healCost || isShipRespawning(),
-    '회복',
-    '+44 HP',
-    `${healCost}G`
-  );
-  setUpgradeButtons(
-    root,
-    'speed',
-    battle.score.gold < getSpeedUpgradeCost(),
-    '연사',
-    `Lv.${ship.attackSpeedLevel}`,
-    `${getSpeedUpgradeCost()}G`
-  );
-  setUpgradeButtons(
-    root,
-    'power',
-    battle.score.gold < getPowerUpgradeCost(),
-    '화력',
-    `Lv.${ship.attackPowerLevel}`,
-    `${getPowerUpgradeCost()}G`
-  );
-  setUpgradeButtons(
-    root,
-    'projectile',
-    battle.score.gold < getBulletUpgradeCost(),
-    '포탄',
-    `${ship.projectileCount}발`,
-    `${getBulletUpgradeCost()}G`
-  );
-  setUpgradeButtons(
-    root,
-    'penetration',
-    battle.score.gold < getPenetrationUpgradeCost(),
-    '관통',
-    `Lv.${ship.penetrationLevel}`,
-    `${getPenetrationUpgradeCost()}G`
-  );
-  setUpgradeButtons(
-    root,
-    'explosion',
-    battle.score.gold < getExplosionUpgradeCost(),
-    '폭발',
-    `Lv.${ship.explosionLevel}`,
-    `${getExplosionUpgradeCost()}G`
-  );
-  setUpgradeButtons(
-    root,
-    'hull',
-    battle.score.gold < getHullUpgradeCost(),
-    '선체',
-    `Lv.${ship.hullLevel}`,
-    `${getHullUpgradeCost()}G`
-  );
+  const upgradeRenderSignature = [
+    battle.score.gold,
+    Math.round(ship.hp),
+    ship.maxHp,
+    isShipRespawning() ? 1 : 0,
+    ship.attackSpeedLevel,
+    ship.attackPowerLevel,
+    ship.projectileLevel,
+    ship.projectileCount,
+    ship.penetrationLevel,
+    ship.explosionLevel,
+    ship.hullLevel
+  ].join('|');
+  if (upgradeRenderSignature !== battle.lastUpgradeRenderSignature) {
+    battle.lastUpgradeRenderSignature = upgradeRenderSignature;
+    const speedCost = getSpeedUpgradeCost();
+    const powerCost = getPowerUpgradeCost();
+    const bulletCost = getBulletUpgradeCost();
+    const penetrationCost = getPenetrationUpgradeCost();
+    const explosionCost = getExplosionUpgradeCost();
+    const hullCost = getHullUpgradeCost();
+    setUpgradeButtons(
+      root,
+      'heal',
+      ship.hp >= ship.maxHp || battle.score.gold < healCost || isShipRespawning(),
+      '회복',
+      '+44 HP',
+      `${healCost}G`
+    );
+    setUpgradeButtons(
+      root,
+      'speed',
+      battle.score.gold < speedCost,
+      '연사',
+      `Lv.${ship.attackSpeedLevel}`,
+      `${speedCost}G`
+    );
+    setUpgradeButtons(
+      root,
+      'power',
+      battle.score.gold < powerCost,
+      '화력',
+      `Lv.${ship.attackPowerLevel}`,
+      `${powerCost}G`
+    );
+    setUpgradeButtons(
+      root,
+      'projectile',
+      battle.score.gold < bulletCost,
+      '포탄',
+      `${ship.projectileCount}발`,
+      `${bulletCost}G`
+    );
+    setUpgradeButtons(
+      root,
+      'penetration',
+      battle.score.gold < penetrationCost,
+      '관통',
+      `Lv.${ship.penetrationLevel}`,
+      `${penetrationCost}G`
+    );
+    setUpgradeButtons(
+      root,
+      'explosion',
+      battle.score.gold < explosionCost,
+      '폭발',
+      `Lv.${ship.explosionLevel}`,
+      `${explosionCost}G`
+    );
+    setUpgradeButtons(
+      root,
+      'hull',
+      battle.score.gold < hullCost,
+      '선체',
+      `Lv.${ship.hullLevel}`,
+      `${hullCost}G`
+    );
+  }
 }
 
 function refreshAllBattleHuds() {
@@ -2552,7 +2580,8 @@ function shootAt(target) {
       explosionLevel,
       explosionRadius,
       explosionDamageRatio,
-      hitEnemyIds: penetrationHits > 0 ? new Set() : null
+      hitEnemyIds: penetrationHits > 0 ? [] : null,
+      removed: false
     });
   });
 }
@@ -2616,6 +2645,35 @@ function compactRemovedEnemies(battle = session?.battle) {
   if (!battle?.enemiesNeedCompact) return;
   battle.enemies = battle.enemies.filter((enemy) => enemy && !enemy.removed);
   battle.enemiesNeedCompact = false;
+}
+
+function projectileHasHitEnemy(projectile, enemyId) {
+  const hitEnemyIds = projectile?.hitEnemyIds;
+  if (!hitEnemyIds) return false;
+  if (Array.isArray(hitEnemyIds)) return hitEnemyIds.includes(enemyId);
+  return typeof hitEnemyIds.has === 'function' && hitEnemyIds.has(enemyId);
+}
+
+function addProjectileHitEnemy(projectile, enemyId) {
+  const hitEnemyIds = projectile?.hitEnemyIds;
+  if (!hitEnemyIds) return;
+  if (Array.isArray(hitEnemyIds)) {
+    hitEnemyIds.push(enemyId);
+  } else if (typeof hitEnemyIds.add === 'function') {
+    hitEnemyIds.add(enemyId);
+  }
+}
+
+function markProjectileRemoved(projectile) {
+  if (!projectile) return;
+  projectile.removed = true;
+  if (session?.battle) session.battle.projectilesNeedCompact = true;
+}
+
+function compactRemovedProjectiles(battle = session?.battle) {
+  if (!battle?.projectilesNeedCompact) return;
+  battle.projectiles = battle.projectiles.filter((projectile) => projectile && !projectile.removed);
+  battle.projectilesNeedCompact = false;
 }
 
 function buildEnemySpatialGrid(battle) {
@@ -2808,6 +2866,7 @@ function updateBattle(dtSec, nowMs) {
   let enemyGrid = buildEnemySpatialGrid(battle);
   for (let index = battle.projectiles.length - 1; index >= 0; index -= 1) {
     const projectile = battle.projectiles[index];
+    if (!projectile || projectile.removed) continue;
     projectile.x += projectile.vx * worldDtSec;
     projectile.y += projectile.vy * worldDtSec;
     if (
@@ -2816,7 +2875,7 @@ function updateBattle(dtSec, nowMs) {
       || projectile.y < -30
       || projectile.y > battle.canvasHeight + 30
     ) {
-      battle.projectiles.splice(index, 1);
+      markProjectileRemoved(projectile);
       continue;
     }
     let hit = false;
@@ -2825,7 +2884,7 @@ function updateBattle(dtSec, nowMs) {
     const candidates = getEnemySpatialCandidates(enemyGrid, projectile.x, projectile.y, projectile.radius + 80);
     for (let enemyIndex = 0; enemyIndex < candidates.length; enemyIndex += 1) {
       const enemy = candidates[enemyIndex];
-      if (!enemy || enemy.removed || (projectile.hitEnemyIds && projectile.hitEnemyIds.has(enemy.id))) continue;
+      if (!enemy || enemy.removed || projectileHasHitEnemy(projectile, enemy.id)) continue;
       const hitRadius = projectile.radius + enemy.radius;
       const projectileDistanceSq = distanceSq(projectile.x, projectile.y, enemy.x, enemy.y);
       if (projectileDistanceSq > hitRadius * hitRadius || projectileDistanceSq >= hitEnemyDistanceSq) continue;
@@ -2833,7 +2892,7 @@ function updateBattle(dtSec, nowMs) {
       hitEnemyDistanceSq = projectileDistanceSq;
     }
     if (hitEnemy) {
-      if (projectile.hitEnemyIds) projectile.hitEnemyIds.add(hitEnemy.id);
+      addProjectileHitEnemy(projectile, hitEnemy.id);
       const killed = applyDamageToEnemy(hitEnemy, projectile.damage);
       applyProjectileExplosion(projectile, hitEnemy.id, enemyGrid);
       if (killed) {
@@ -2847,8 +2906,9 @@ function updateBattle(dtSec, nowMs) {
         hit = true;
       }
     }
-    if (hit) battle.projectiles.splice(index, 1);
+    if (hit) markProjectileRemoved(projectile);
   }
+  compactRemovedProjectiles(battle);
   compactRemovedEnemies(battle);
 
   for (let index = battle.effects.length - 1; index >= 0; index -= 1) {
@@ -3286,7 +3346,27 @@ function getEnemyBadge(enemy, variantStyle) {
   return { text: '', fill: '', stroke: '', color: '' };
 }
 
-function drawEnemy(ctx, enemy, nowMs) {
+function getBattleRenderLoad(battle = session?.battle) {
+  const enemyCount = Number(battle?.enemies?.length) || 0;
+  const projectileCount = Number(battle?.projectiles?.length) || 0;
+  const effectCount = Number(battle?.effects?.length) || 0;
+  const busy = enemyCount >= BUSY_RENDER_ENEMY_COUNT
+    || projectileCount >= BUSY_RENDER_PROJECTILE_COUNT
+    || effectCount >= 7;
+  const veryBusy = enemyCount >= VERY_BUSY_RENDER_ENEMY_COUNT
+    || projectileCount >= VERY_BUSY_RENDER_PROJECTILE_COUNT
+    || effectCount >= 10;
+  return { busy, veryBusy, enemyCount, projectileCount, effectCount };
+}
+
+function shouldDrawEnemyInfo(enemy, variantStyle, renderLoad) {
+  if (!renderLoad?.busy) return true;
+  if (enemy.hp < enemy.maxHp) return true;
+  if (variantStyle || enemy.elite || enemy.hardened) return true;
+  return ['commander', 'summoner', 'armored', 'adaptive'].includes(enemy.role);
+}
+
+function drawEnemy(ctx, enemy, nowMs, renderLoad = null) {
   const image = enemyImages.get(enemy.tier);
   const variantStyle = getEnemyVariantVisual(enemy);
   const visualScale = getBattleVisualScale();
@@ -3299,13 +3379,15 @@ function drawEnemy(ctx, enemy, nowMs) {
   const drawHeight = spriteSize?.height || enemy.renderSize * enemyDrawScale;
   const drawX = enemy.x - drawWidth / 2;
   const drawY = enemy.y - drawHeight / 2;
-  drawEnemyVariantAura(ctx, enemy, drawWidth, drawHeight, variantStyle, nowMs);
+  if (!renderLoad?.veryBusy || enemy.elite) {
+    drawEnemyVariantAura(ctx, enemy, drawWidth, drawHeight, variantStyle, nowMs);
+  }
 
   ctx.save();
   ctx.shadowColor = 'rgba(9, 24, 56, 0.24)';
-  ctx.shadowBlur = (variantStyle ? 18 : 10) * enemyDrawScale;
-  ctx.shadowOffsetY = 6 * enemyDrawScale;
-  if (variantStyle?.shadowColor) {
+  ctx.shadowBlur = (renderLoad?.veryBusy ? 0 : (variantStyle ? 18 : 10)) * enemyDrawScale;
+  ctx.shadowOffsetY = renderLoad?.veryBusy ? 0 : 6 * enemyDrawScale;
+  if (variantStyle?.shadowColor && !renderLoad?.busy) {
     ctx.filter = `drop-shadow(0 0 ${(enemy.elite ? 16 : 11) * enemyDrawScale}px ${variantStyle.shadowColor})`;
   }
   if (image?.complete && image.naturalWidth) {
@@ -3341,12 +3423,15 @@ function drawEnemy(ctx, enemy, nowMs) {
   }
   ctx.restore();
 
+  const badge = getEnemyBadge(enemy, variantStyle);
+  if (!shouldDrawEnemyInfo(enemy, variantStyle, renderLoad)) return;
+
   const barWidth = Math.round(clamp(drawWidth * 0.84, 24, 44));
   const barHeight = Math.round(clamp(6 * enemyDrawScale, 3, 6));
   const hpColor = getEnemyHpColor(enemy, variantStyle);
   drawHpBar(ctx, enemy.x - barWidth / 2, enemy.y - visualRadius - Math.round(13 * enemyDrawScale), barWidth, enemy.hp, enemy.maxHp, hpColor, barHeight);
-  const badge = getEnemyBadge(enemy, variantStyle);
-  if (badge.text) {
+  const drawBadge = badge.text && (!renderLoad?.veryBusy || enemy.elite || enemy.hardened);
+  if (drawBadge) {
     ctx.save();
     const badgeFontSize = Math.round(clamp(10 * enemyDrawScale, 7, 10));
     const badgeHeight = Math.round(clamp(14 * enemyDrawScale, 10, 14));
@@ -3493,6 +3578,7 @@ function drawProjectileGroup(ctx, projectiles, width, height, hasExplosion) {
   ctx.beginPath();
   for (let index = 0; index < projectiles.length; index += 1) {
     const projectile = projectiles[index];
+    if (!projectile || projectile.removed) continue;
     if (Boolean(projectile.explosionRadius > 0) !== hasExplosion) continue;
     if (!isDrawAreaVisible(projectile.x, projectile.y, projectile.radius, width, height, 8)) continue;
     ctx.moveTo(projectile.x + projectile.radius, projectile.y);
@@ -3531,12 +3617,13 @@ function drawBattle() {
   drawShip(ctx, battle.ship, nowMs);
 
   const visualScale = getBattleVisualScale(battle);
+  const renderLoad = getBattleRenderLoad(battle);
   for (let index = 0; index < battle.enemies.length; index += 1) {
     const enemy = battle.enemies[index];
     if (!enemy || enemy.removed) continue;
     const drawRadius = Math.max(enemy.radius, enemy.renderSize * visualScale * 0.68);
     if (isDrawAreaVisible(enemy.x, enemy.y, drawRadius, width, height, 34)) {
-      drawEnemy(ctx, enemy, nowMs);
+      drawEnemy(ctx, enemy, nowMs, renderLoad);
     }
   }
 
@@ -4031,7 +4118,7 @@ window.__KNOLQUIZ_TEST__ = {
         radius: Math.round(effect.radius),
         level: effect.level
       })),
-      projectileCount: battle.projectiles.length,
+      projectileCount: battle.projectiles.filter((projectile) => projectile && !projectile.removed).length,
       statusText: battle.statusText,
       ship: {
         hp: Math.round(battle.ship.hp),
