@@ -195,8 +195,13 @@ const EXPLOSION_SEED_BUCKETS = 8;
 const EXPLOSION_FRAME_CACHE_LIMIT = 240;
 const MAX_ACTIVE_BATTLE_EFFECTS = 36;
 const EXPLOSION_EFFECT_POOL_SIZE = 48;
-const BATTLESHIP_RESPAWN_DELAY_MS = 3200;
+const BATTLESHIP_RESPAWN_DELAY_MS = 3000;
 const BATTLESHIP_RESPAWN_INVULN_MS = 1200;
+const BATTLESHIP_DEFEAT_FLASH_MS = 1150;
+const BATTLESHIP_DEFEAT_SPAWN_RESTART_MS = 420;
+const BATTLESHIP_DEFEAT_PENALTY_MIN = 180;
+const BATTLESHIP_DEFEAT_PENALTY_SCORE_RATIO = 0.12;
+const BATTLESHIP_DEFEAT_PENALTY_WAVE_STEP = 45;
 const EARLY_ATTACK_SLOW_WINDOW_SEC = 70;
 const EARLY_ATTACK_SLOW_MAX_RATIO = 1.22;
 const QUIZ_SCORE_BASE = 120;
@@ -967,6 +972,9 @@ function createBattleState(playerIndex = 0) {
     feedbackKind: '',
     statusText: '전장 진행 중',
     statusTone: '',
+    defeatFlashUntilMs: 0,
+    lastDeathPenalty: 0,
+    lastDeathClearedEnemies: 0,
     flow: {
       label: '보통',
       spawnCooldownMul: 1,
@@ -2937,13 +2945,55 @@ function isShipInvulnerable(nowMs = performance.now()) {
   return Number(session?.battle?.ship?.invulnerableUntilMs || 0) > Number(nowMs);
 }
 
+function clearBattlefieldForRespawn(battle = session?.battle) {
+  if (!battle) return 0;
+  const clearedEnemies = Array.isArray(battle.enemies)
+    ? battle.enemies.filter((enemy) => enemy && !enemy.removed).length
+    : 0;
+  battle.enemies = [];
+  battle.enemiesNeedCompact = false;
+  battle.projectiles = [];
+  battle.projectilesNeedCompact = false;
+  if (Array.isArray(battle.effects)) {
+    battle.effects.forEach((effect) => markEffectRemoved(effect, battle));
+    compactRemovedEffects(battle);
+  }
+  return clearedEnemies;
+}
+
+function applyShipDeathScorePenalty(battle = session?.battle) {
+  if (!battle) return 0;
+  const currentPoints = Math.max(0, Math.round(Number(battle.score.points) || 0));
+  if (currentPoints <= 0) return 0;
+  const scaledPenalty = Math.round(currentPoints * BATTLESHIP_DEFEAT_PENALTY_SCORE_RATIO);
+  const wavePenalty = Math.max(1, Math.round(Number(battle.waves.level) || 1)) * BATTLESHIP_DEFEAT_PENALTY_WAVE_STEP;
+  const penalty = Math.min(currentPoints, Math.max(BATTLESHIP_DEFEAT_PENALTY_MIN, scaledPenalty, wavePenalty));
+  battle.score.points = Math.max(0, currentPoints - penalty);
+  if (!isSharedBattleSession()) {
+    const owner = session.players[battle.playerIndex];
+    if (owner) owner.score = Math.max(0, Math.round(Number(owner.score) || 0) - penalty);
+  }
+  battle.hudDirty = true;
+  return penalty;
+}
+
 function triggerShipRespawn(nowMs = performance.now()) {
-  const ship = session.battle.ship;
+  const battle = session.battle;
+  const ship = battle.ship;
+  const clearedEnemies = clearBattlefieldForRespawn(battle);
+  const penalty = applyShipDeathScorePenalty(battle);
   ship.hp = 0;
   ship.deathCount += 1;
   ship.respawnUntilMs = nowMs + BATTLESHIP_RESPAWN_DELAY_MS;
   ship.invulnerableUntilMs = 0;
-  setBattleStatus(`거북선 격침 · ${Math.ceil(BATTLESHIP_RESPAWN_DELAY_MS / 1000)}초 재정비`, 'danger');
+  battle.nextSpawnMs = BATTLESHIP_RESPAWN_DELAY_MS + BATTLESHIP_DEFEAT_SPAWN_RESTART_MS;
+  battle.nextShotMs = battle.worldElapsedMs + BATTLESHIP_RESPAWN_DELAY_MS;
+  battle.defeatFlashUntilMs = nowMs + BATTLESHIP_DEFEAT_FLASH_MS;
+  battle.lastDeathPenalty = penalty;
+  battle.lastDeathClearedEnemies = clearedEnemies;
+  const penaltyText = penalty > 0 ? ` · 점수 -${penalty.toLocaleString('ko-KR')}` : '';
+  const clearText = clearedEnemies > 0 ? ` · 적 ${clearedEnemies} 싹쓸이` : ' · 전장 정리';
+  setBattleStatus(`거북선 격침${penaltyText}${clearText} · ${Math.ceil(BATTLESHIP_RESPAWN_DELAY_MS / 1000)}초 재정비`, 'danger');
 }
 
 function completeShipRespawn(nowMs = performance.now()) {
@@ -2953,6 +3003,7 @@ function completeShipRespawn(nowMs = performance.now()) {
   ship.invulnerableUntilMs = nowMs + BATTLESHIP_RESPAWN_INVULN_MS;
   ship.hp = ship.maxHp;
   session.battle.nextShotMs = session.battle.worldElapsedMs + 300;
+  session.battle.nextSpawnMs = BATTLESHIP_DEFEAT_SPAWN_RESTART_MS;
   setBattleStatus('재정비 완료 · 다시 전투 참여', 'success');
 }
 
@@ -2981,10 +3032,14 @@ function updateBattle(dtSec, nowMs) {
     Math.max(280, SPAWN_MIN_COOLDOWN_MS * 0.55),
     SPAWN_START_COOLDOWN_MS * 1.75
   );
-  battle.nextSpawnMs -= worldDtSec * 1000;
-  while (battle.nextSpawnMs <= 0) {
-    spawnEnemy(battle.flow);
-    battle.nextSpawnMs += activeSpawnCooldown;
+  if (isShipRespawning(nowMs)) {
+    battle.nextSpawnMs = Math.max(battle.nextSpawnMs, BATTLESHIP_DEFEAT_SPAWN_RESTART_MS);
+  } else {
+    battle.nextSpawnMs -= worldDtSec * 1000;
+    while (battle.nextSpawnMs <= 0) {
+      spawnEnemy(battle.flow);
+      battle.nextSpawnMs += activeSpawnCooldown;
+    }
   }
 
   if (!isShipRespawning(nowMs) && battle.worldElapsedMs >= battle.nextShotMs) {
@@ -3700,6 +3755,45 @@ function drawBattleEffects(ctx, effects, nowMs, width, height) {
   });
 }
 
+function drawDefeatFlashOverlay(ctx, battle, nowMs, width, height) {
+  if (!battle) return;
+  const flashRemainingMs = Math.max(0, Number(battle.defeatFlashUntilMs || 0) - nowMs);
+  const respawnRemainingMs = Math.max(0, Number(battle.ship?.respawnUntilMs || 0) - nowMs);
+  if (flashRemainingMs <= 0 && respawnRemainingMs <= 0) return;
+  const flashRatio = clamp(flashRemainingMs / BATTLESHIP_DEFEAT_FLASH_MS, 0, 1);
+  const pulse = 0.5 + Math.sin(nowMs * 0.018) * 0.5;
+  const overlayAlpha = clamp(0.06 + flashRatio * 0.42 + (respawnRemainingMs > 0 ? pulse * 0.04 : 0), 0.06, 0.52);
+  ctx.save();
+  ctx.fillStyle = `rgba(185, 28, 28, ${overlayAlpha})`;
+  ctx.fillRect(0, 0, width, height);
+
+  const visualScale = getBattleVisualScale(battle);
+  const panelWidth = Math.min(width - 28, Math.round(clamp(width * 0.54, 210, 360)));
+  const panelHeight = Math.round(clamp(74 * visualScale, 48, 74));
+  const panelX = (width - panelWidth) / 2;
+  const panelY = Math.round(clamp(height * 0.18, 22, 118));
+  const radius = Math.round(clamp(12 * visualScale, 7, 12));
+  ctx.fillStyle = 'rgba(69, 10, 10, 0.82)';
+  ctx.strokeStyle = 'rgba(254, 202, 202, 0.72)';
+  ctx.lineWidth = Math.max(1, 2 * visualScale);
+  ctx.beginPath();
+  ctx.roundRect(panelX, panelY, panelWidth, panelHeight, radius);
+  ctx.fill();
+  ctx.stroke();
+
+  const respawnSec = Math.max(0, Math.ceil(respawnRemainingMs / 1000));
+  const penalty = Math.max(0, Math.round(Number(battle.lastDeathPenalty) || 0));
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillStyle = '#fff7ed';
+  ctx.font = `900 ${Math.round(clamp(18 * visualScale, 12, 20))}px Apple SD Gothic Neo, Malgun Gothic, sans-serif`;
+  ctx.fillText('거북선 격침', width / 2, panelY + panelHeight * 0.34);
+  ctx.font = `800 ${Math.round(clamp(12 * visualScale, 8, 13))}px Apple SD Gothic Neo, Malgun Gothic, sans-serif`;
+  const penaltyText = penalty > 0 ? `점수 -${penalty.toLocaleString('ko-KR')} · ` : '';
+  ctx.fillText(`${penaltyText}${respawnSec}초 뒤 재출항`, width / 2, panelY + panelHeight * 0.68);
+  ctx.restore();
+}
+
 function isDrawAreaVisible(x, y, radius, width, height, margin = 0) {
   const extent = Math.max(0, Number(radius) || 0) + Math.max(0, Number(margin) || 0);
   return x + extent >= 0
@@ -3802,6 +3896,8 @@ function drawBattle() {
     }
     ctx.restore();
   }
+
+  drawDefeatFlashOverlay(ctx, battle, nowMs, width, height);
 }
 
 function getBattleDrawIntervalMs(battle) {
@@ -4255,9 +4351,14 @@ window.__KNOLQUIZ_TEST__ = {
       })),
       projectileCount: battle.projectiles.filter((projectile) => projectile && !projectile.removed).length,
       statusText: battle.statusText,
+      score: battle.score.points,
+      lastDeathPenalty: battle.lastDeathPenalty,
+      lastDeathClearedEnemies: battle.lastDeathClearedEnemies,
+      respawning: isShipRespawning(),
       ship: {
         hp: Math.round(battle.ship.hp),
         maxHp: battle.ship.maxHp,
+        deathCount: battle.ship.deathCount,
         attackPower: battle.ship.attackPower,
         attackCooldownMs: Math.round(getAttackCooldownMs()),
         attackSpeedLevel: battle.ship.attackSpeedLevel,
