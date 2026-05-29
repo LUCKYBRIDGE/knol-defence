@@ -198,6 +198,7 @@ const QUIZ_AUTO_NEXT_DELAY_MS = 760;
 const QUIZ_AUTO_CLOSE_DELAY_MS = 920;
 const HUD_REFRESH_INTERVAL_MS = 140;
 const CANVAS_SYNC_INTERVAL_MS = 220;
+const MIN_START_LOADING_MS = 850;
 const KILL_SCORE_BASE = 25;
 const KILL_SCORE_TIER_STEP = 14;
 const KILL_SCORE_COMBO_STEP = 0.015;
@@ -215,6 +216,10 @@ const elements = {
   playerOptions: $('#player-options'),
   startButton: $('#start-button'),
   setupError: $('#setup-error'),
+  startLoading: $('#start-loading'),
+  startLoadingText: $('#start-loading-text'),
+  startLoadingFill: $('#start-loading-fill'),
+  startLoadingPercent: $('#start-loading-percent'),
   tabletPromoButton: $('#tablet-promo-button'),
   exitButton: $('#exit-button'),
   playTitle: $('#play-title'),
@@ -231,6 +236,7 @@ const elements = {
 };
 
 const packCache = new Map();
+const imageDecodeCache = new Map();
 const enemyImages = new Map();
 const enemyVariantSpriteCache = new Map();
 const shipImage = new Image();
@@ -247,6 +253,8 @@ let selectedDisplayMode = 'auto';
 let selectedPlayers = 1;
 let selectedMinutes = 3;
 let setupMessageKind = '';
+let startLoading = false;
+let combatAssetsWarmed = false;
 let session = null;
 let battleCanvas = null;
 let battleCtx = null;
@@ -480,6 +488,27 @@ function setSetupMessage(message = '', kind = '') {
   elements.setupError.classList.toggle('is-error', kind === 'error');
 }
 
+function setStartLoading(active, message = '게임 자산을 미리 불러오고 있습니다', progress = 0) {
+  startLoading = Boolean(active);
+  const safeProgress = clamp(Number(progress) || 0, 0, 1);
+  elements.startLoading?.classList.toggle('is-hidden', !startLoading);
+  elements.startLoading?.setAttribute('aria-hidden', String(!startLoading));
+  if (elements.startLoadingText) elements.startLoadingText.textContent = message;
+  if (elements.startLoadingFill) elements.startLoadingFill.style.width = `${Math.round(safeProgress * 100)}%`;
+  if (elements.startLoadingPercent) elements.startLoadingPercent.textContent = `${Math.round(safeProgress * 100)}%`;
+  elements.startButton.disabled = startLoading || !selectedMinutes;
+}
+
+function wait(ms) {
+  return new Promise((resolve) => window.setTimeout(resolve, Math.max(0, Number(ms) || 0)));
+}
+
+function nextPaint() {
+  return new Promise((resolve) => {
+    window.requestAnimationFrame(() => window.requestAnimationFrame(resolve));
+  });
+}
+
 function enforceDisplayModeRules() {
   const resolvedMode = getResolvedDisplayMode();
   const playerLimit = getDisplayPlayerLimit(resolvedMode);
@@ -509,7 +538,7 @@ function updateSetupSummary(options = {}) {
   if (elements.playMinutes) {
     elements.playMinutes.value = selectedMinutes ? String(selectedMinutes) : '';
   }
-  elements.startButton.disabled = !selectedMinutes;
+  elements.startButton.disabled = startLoading || !selectedMinutes;
 
   $$('.option-button', elements.modeOptions).forEach((button) => {
     const forcedTabletCoop = resolvedMode === 'tablet' && selectedPlayers > 1 && button.dataset.mode === 'solo';
@@ -648,6 +677,153 @@ async function loadPack(packId) {
   }
   if (!questions.length) throw new Error(`${pack.label}에 사용할 문제가 없습니다.`);
   packCache.set(packId, questions);
+  return questions;
+}
+
+function decodeImageElement(image) {
+  if (!image) return Promise.resolve();
+  const src = image.currentSrc || image.src || '';
+  if (src && imageDecodeCache.has(src)) return imageDecodeCache.get(src);
+  const promise = new Promise((resolve) => {
+    if (image.complete && image.naturalWidth) {
+      if (typeof image.decode === 'function') {
+        image.decode().then(resolve).catch(resolve);
+      } else {
+        resolve();
+      }
+      return;
+    }
+    const done = () => resolve();
+    image.addEventListener('load', done, { once: true });
+    image.addEventListener('error', done, { once: true });
+  });
+  if (src) imageDecodeCache.set(src, promise);
+  return promise;
+}
+
+function preloadImageSrc(src) {
+  const safeSrc = String(src || '').trim();
+  if (!safeSrc) return Promise.resolve();
+  if (imageDecodeCache.has(safeSrc)) return imageDecodeCache.get(safeSrc);
+  const image = new Image();
+  image.decoding = 'async';
+  image.src = safeSrc;
+  const promise = decodeImageElement(image);
+  imageDecodeCache.set(safeSrc, promise);
+  return promise;
+}
+
+function collectQuizImageSources(questions) {
+  const sources = new Set();
+  questions.forEach((question) => {
+    if (question?.image) sources.add(question.image);
+    (question?.choices || []).forEach((choice) => {
+      if (isQuizImageAsset(choice)) sources.add(toQuizImageSrc(choice));
+    });
+  });
+  return Array.from(sources);
+}
+
+function getWarmupEnemyVariantStyles() {
+  const hardened = {
+    ...ENEMY_STRENGTH_VARIANTS.hardened.visual,
+    cacheKey: 'hardened'
+  };
+  const elite = {
+    ...ENEMY_STRENGTH_VARIANTS.elite.visual,
+    cacheKey: 'elite'
+  };
+  const eliteMax = {
+    ...ENEMY_STRENGTH_VARIANTS.elite.visual,
+    ...ENEMY_STRENGTH_VARIANTS.elite.visual.max,
+    cacheKey: 'elite-max'
+  };
+  return [hardened, elite, eliteMax];
+}
+
+function warmupEnemyVariantSprites() {
+  getWarmupEnemyVariantStyles().forEach((style) => {
+    enemyImages.forEach((image) => {
+      if (!image?.naturalWidth) return;
+      getTintedEnemySprite(image, style);
+      if (style.outline) getEnemySilhouetteSprite(image, style.outline);
+      if (style.outerOutline) getEnemySilhouetteSprite(image, style.outerOutline);
+    });
+  });
+}
+
+function warmupCanvasPrimitives() {
+  const canvas = document.createElement('canvas');
+  canvas.width = 320;
+  canvas.height = 320;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return;
+  drawBackground(ctx, canvas.width, canvas.height, 0);
+  if (shipImage.complete && shipImage.naturalWidth) {
+    ctx.drawImage(
+      shipImage,
+      SHIP_SPRITE_CROP.x,
+      SHIP_SPRITE_CROP.y,
+      SHIP_SPRITE_CROP.width,
+      SHIP_SPRITE_CROP.height,
+      126,
+      88,
+      68,
+      104
+    );
+  }
+  ctx.fillStyle = '#fb923c';
+  ctx.beginPath();
+  ctx.arc(212, 152, 8, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+async function warmupCombatAssets(updateProgress) {
+  if (combatAssetsWarmed) return;
+  updateProgress('거북선과 적 이미지를 불러오는 중', 0.18);
+  await Promise.allSettled([
+    decodeImageElement(shipImage),
+    ...Array.from(enemyImages.values()).map(decodeImageElement)
+  ]);
+  updateProgress('강화 적 표시 효과를 미리 준비하는 중', 0.42);
+  warmupEnemyVariantSprites();
+  await nextPaint();
+  updateProgress('전장 캔버스를 준비하는 중', 0.52);
+  warmupCanvasPrimitives();
+  await nextPaint();
+  combatAssetsWarmed = true;
+}
+
+async function warmupQuizAssets(questions, updateProgress) {
+  const sources = collectQuizImageSources(questions);
+  if (!sources.length) {
+    updateProgress('퀴즈 문제를 준비하는 중', 0.86);
+    await nextPaint();
+    return;
+  }
+  const chunkSize = 18;
+  for (let index = 0; index < sources.length; index += chunkSize) {
+    const chunk = sources.slice(index, index + chunkSize);
+    await Promise.allSettled(chunk.map(preloadImageSrc));
+    const doneRatio = Math.min(1, (index + chunk.length) / sources.length);
+    updateProgress(`퀴즈 이미지를 미리 불러오는 중 (${index + chunk.length}/${sources.length})`, 0.56 + doneRatio * 0.36);
+    await nextPaint();
+  }
+}
+
+async function prepareGameStart() {
+  const startedAtMs = performance.now();
+  const updateProgress = (message, progress) => setStartLoading(true, message, progress);
+  updateProgress('퀴즈 데이터를 불러오는 중', 0.06);
+  const questions = await loadPack(selectedPackId);
+  updateProgress('전투 자산을 점검하는 중', 0.12);
+  await warmupCombatAssets(updateProgress);
+  await warmupQuizAssets(questions, updateProgress);
+  updateProgress('전장 배치를 최종 준비하는 중', 0.96);
+  const remainingMs = MIN_START_LOADING_MS - (performance.now() - startedAtMs);
+  if (remainingMs > 0) await wait(remainingMs);
+  updateProgress('전장 준비 완료', 1);
+  await nextPaint();
   return questions;
 }
 
@@ -3135,24 +3311,27 @@ function startTimer() {
 }
 
 async function startSelectedGame() {
+  if (startLoading) return;
   setSetupMessage();
   enforceDisplayModeRules();
   if (!selectedMinutes) {
     setSetupMessage('플레이 시간을 선택하세요.', 'error');
     return;
   }
-  elements.startButton.disabled = true;
+  setStartLoading(true, '퀴즈 데이터를 불러오는 중', 0.04);
   try {
-    const questions = await loadPack(selectedPackId);
+    const questions = await prepareGameStart();
     session = buildSession(questions);
     currentBattleIndex = 0;
     nextQuestion();
     showScreen('play');
+    setStartLoading(false);
     renderPlay();
     renderStageShell();
     startTimer();
     startBattleLoop();
   } catch (error) {
+    setStartLoading(false);
     setSetupMessage(error instanceof Error ? error.message : '시작할 수 없습니다.', 'error');
   } finally {
     updateSetupSummary({ keepError: true });
