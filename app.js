@@ -428,6 +428,9 @@ function getResolutionPlayerLimit() {
 
 function getPlayerLimitInfo(resolvedMode = getResolvedDisplayMode()) {
   const displayLimit = getDisplayModePlayerLimit(resolvedMode);
+  if (resolvedMode === 'tablet') {
+    return { limit: displayLimit, displayLimit, resolutionLimit: displayLimit, reason: '' };
+  }
   const resolutionLimit = getResolutionPlayerLimit();
   const limit = Math.min(displayLimit, resolutionLimit);
   const reason = resolutionLimit < displayLimit
@@ -860,6 +863,13 @@ function getPlayerIndexFromElement(node) {
     return clamp(Number(ownedNode.dataset.playerIndex) || 0, 0, Math.max(0, (session?.players?.length || 1) - 1));
   }
   return getBattleIndexFromElement(node);
+}
+
+function getQuizOwnerIndexFromElement(node) {
+  const ownerNode = node?.closest?.('[data-quiz-owner], [data-player-index]');
+  if (!ownerNode) return getPlayerIndexFromElement(node);
+  const rawOwner = ownerNode.dataset.quizOwner ?? ownerNode.dataset.playerIndex;
+  return clamp(Number(rawOwner) || 0, 0, Math.max(0, (session?.players?.length || 1) - 1));
 }
 
 function nextQuestion(quizState = getQuizState(currentBattleIndex)) {
@@ -1486,7 +1496,9 @@ function refreshAllBattleHuds() {
 function handleBattleAction(event) {
   const quizControl = event.target.closest('[data-choice], [data-quiz-close]');
   if (quizControl && session) {
-    const battleIndex = getPlayerIndexFromElement(quizControl);
+    event.preventDefault();
+    event.stopPropagation();
+    const battleIndex = getQuizOwnerIndexFromElement(quizControl);
     if (quizControl.matches('[data-choice]')) {
       submitAnswer(quizControl.dataset.choice || '', battleIndex);
     } else {
@@ -1521,6 +1533,20 @@ function handleBattleAction(event) {
 }
 
 function handleBattlePointerDown(event) {
+  const quizControl = event.target.closest('[data-choice], [data-quiz-close]');
+  if (quizControl && session) {
+    if (event.pointerType === 'mouse' && event.button !== 0) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const battleIndex = getQuizOwnerIndexFromElement(quizControl);
+    if (quizControl.matches('[data-choice]')) {
+      submitAnswer(quizControl.dataset.choice || '', battleIndex);
+    } else {
+      closeQuizModal(battleIndex);
+    }
+    return;
+  }
+
   const button = event.target.closest('[data-action="quiz"]');
   if (!button || !session || button.disabled) return;
   if (event.pointerType === 'mouse' && event.button !== 0) return;
@@ -1571,7 +1597,7 @@ function runShipUpgrade(action) {
   }
 }
 
-function renderChoiceButton(choice, index, question, battle) {
+function renderChoiceButton(choice, index, question, battle, playerIndex = currentBattleIndex) {
   const choiceValue = String(choice);
   const hasImageChoice = isQuizImageAsset(choiceValue);
   const isLocked = Boolean(battle?.answerLocked);
@@ -1588,7 +1614,7 @@ function renderChoiceButton(choice, index, question, battle) {
     ? `<span class="choice-media"><img src="${toQuizImageSrc(escapeHtml(choiceValue))}" alt="선택지 ${index + 1}" /></span>`
     : `<span class="choice-text">${escapeHtml(choiceValue)}</span>`;
   return `
-    <button class="${choiceClasses.join(' ')}" type="button" data-choice="${escapeHtml(choiceValue)}" ${isLocked ? 'disabled' : ''}>
+    <button class="${choiceClasses.join(' ')}" type="button" data-choice="${escapeHtml(choiceValue)}" data-player-index="${playerIndex}" data-quiz-owner="${playerIndex}" ${isLocked ? 'disabled' : ''}>
       <span class="choice-index">${index + 1}</span>
       ${choiceBody}
     </button>
@@ -1725,7 +1751,7 @@ function buildQuizCardHtml(playerIndex = currentBattleIndex) {
     : `<p class="question-text">${escapeHtml(question.text || question.prompt)}</p>`);
 
   return `
-    <div class="${modalClasses.join(' ')}" role="dialog" aria-labelledby="quiz-modal-title-${playerIndex}">
+    <div class="${modalClasses.join(' ')}" data-player-index="${playerIndex}" data-quiz-owner="${playerIndex}" role="dialog" aria-labelledby="quiz-modal-title-${playerIndex}">
       <div class="quiz-modal-head">
         <div class="quiz-title-block">
           <div class="question-kicker">${escapeHtml(activePlayer?.name || '플레이어')} · ${burstProgress.current}/${burstProgress.total}</div>
@@ -1737,7 +1763,7 @@ function buildQuizCardHtml(playerIndex = currentBattleIndex) {
         ${questionBody}
       </div>
       <div class="choice-grid">
-        ${question.choices.map((choice, index) => renderChoiceButton(choice, index, question, quizState)).join('')}
+        ${question.choices.map((choice, index) => renderChoiceButton(choice, index, question, quizState, playerIndex)).join('')}
       </div>
       <div class="quiz-modal-foot">
         <div class="feedback-line ${quizState.feedbackKind}">${escapeHtml(quizState.feedback)}</div>
@@ -1871,7 +1897,7 @@ function submitAnswer(choice, battleIndex = currentBattleIndex) {
   setBattleContext(battleIndex);
   const battle = session.battle;
   const quizState = getQuizState(battleIndex);
-  if (quizState?.answerLocked || !quizState?.currentQuestion) return;
+  if (!quizState?.quizOpen || quizState.answerLocked || !quizState.currentQuestion) return;
   if (Date.now() >= session.deadlineAt) {
     finishSession();
     return;
