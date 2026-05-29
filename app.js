@@ -794,7 +794,7 @@ function warmupCanvasPrimitives() {
   canvas.height = 320;
   const ctx = canvas.getContext('2d');
   if (!ctx) return;
-  drawBackground(ctx, canvas.width, canvas.height, 0);
+  drawBackground(ctx, canvas.width, canvas.height, null);
   if (shipImage.complete && shipImage.naturalWidth) {
     ctx.drawImage(
       shipImage,
@@ -948,6 +948,7 @@ function createBattleState(playerIndex = 0) {
       level: 1,
       elapsedSec: 0
     },
+    backgroundCache: null,
     enemies: [],
     enemiesNeedCompact: false,
     projectiles: [],
@@ -2275,6 +2276,7 @@ function syncCanvasSize(options = {}) {
     battleCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
     session.battle.canvasWidth = width;
     session.battle.canvasHeight = height;
+    session.battle.backgroundCache = null;
     session.battle.ship.x = width * 0.5;
     session.battle.ship.y = height * 0.5;
     session.battle.ship.radius = clamp(Math.min(width, height) * 0.07, 17, 44);
@@ -2878,7 +2880,7 @@ function updateBattle(dtSec, nowMs) {
   refreshBattleHud(currentBattleIndex, { passive: true, nowMs });
 }
 
-function drawBackground(ctx, width, height, elapsedSec) {
+function drawStaticBattleBackground(ctx, width, height) {
   const sky = ctx.createLinearGradient(0, 0, 0, height);
   sky.addColorStop(0, '#d2f0ff');
   sky.addColorStop(0.42, '#eefaff');
@@ -2889,13 +2891,45 @@ function drawBackground(ctx, width, height, elapsedSec) {
 
   ctx.fillStyle = 'rgba(255,255,255,0.42)';
   for (let y = height * 0.5; y < height; y += 24) {
-    const offset = (elapsedSec * 34 + y) % 64;
+    const offset = y % 64;
     for (let x = -64; x < width + 64; x += 92) {
       ctx.beginPath();
       ctx.ellipse(x + offset, y, 28, 3.2, 0, 0, Math.PI * 2);
       ctx.fill();
     }
   }
+}
+
+function createBattleBackgroundCache(width, height) {
+  const cacheWidth = Math.max(1, Math.round(width));
+  const cacheHeight = Math.max(1, Math.round(height));
+  const canvas = document.createElement('canvas');
+  canvas.width = cacheWidth;
+  canvas.height = cacheHeight;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return null;
+  drawStaticBattleBackground(ctx, cacheWidth, cacheHeight);
+  return {
+    canvas,
+    width: cacheWidth,
+    height: cacheHeight
+  };
+}
+
+function drawBackground(ctx, width, height, battle = session?.battle) {
+  const cacheWidth = Math.max(1, Math.round(width));
+  const cacheHeight = Math.max(1, Math.round(height));
+  if (battle) {
+    const cache = battle.backgroundCache;
+    if (!cache || cache.width !== cacheWidth || cache.height !== cacheHeight) {
+      battle.backgroundCache = createBattleBackgroundCache(cacheWidth, cacheHeight);
+    }
+    if (battle.backgroundCache?.canvas) {
+      ctx.drawImage(battle.backgroundCache.canvas, 0, 0, width, height);
+      return;
+    }
+  }
+  drawStaticBattleBackground(ctx, width, height);
 }
 
 function getBattleVisualScale(battle = session?.battle) {
@@ -3386,7 +3420,7 @@ function drawBattle() {
   const width = battle.canvasWidth;
   const height = battle.canvasHeight;
   ctx.clearRect(0, 0, width, height);
-  drawBackground(ctx, width, height, battle.waves.elapsedSec);
+  drawBackground(ctx, width, height, battle);
 
   drawShip(ctx, battle.ship, nowMs);
 
