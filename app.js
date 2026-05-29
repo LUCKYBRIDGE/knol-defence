@@ -174,16 +174,21 @@ const BATTLE_QUIZ_WORLD_SLOW_RATIO = 0.35;
 const SHIP_BASE_MAX_HP = 300;
 const SHIP_BASE_ATTACK_POWER = 14;
 const SHIP_BASE_ATTACK_COOLDOWN_MS = 620;
-const SHIP_ATTACK_SPEED_LEVEL_STEP = 0.1;
-const SHIP_ATTACK_POWER_LEVEL_STEP = 0.16;
-const SHIP_HULL_HP_STEP = 46;
-const SHIP_HULL_DAMAGE_REDUCTION_STEP = 0.055;
-const SHIP_DAMAGE_REDUCTION_MAX = 0.4;
-const SHIP_EXPLOSION_BASE_RADIUS = 58;
-const SHIP_EXPLOSION_RADIUS_STEP = 14;
-const SHIP_EXPLOSION_BASE_DAMAGE_RATIO = 0.42;
-const SHIP_EXPLOSION_DAMAGE_RATIO_STEP = 0.09;
-const SHIP_EXPLOSION_DAMAGE_RATIO_MAX = 0.82;
+const SHIP_ATTACK_SPEED_LEVEL_STEP = 0.085;
+const SHIP_ATTACK_POWER_LEVEL_STEP = 0.13;
+const SHIP_HULL_HP_STEP = 40;
+const SHIP_HULL_DAMAGE_REDUCTION_STEP = 0.045;
+const SHIP_DAMAGE_REDUCTION_MAX = 0.32;
+const SHIP_MAX_PROJECTILE_COUNT = 6;
+const SHIP_MAX_PENETRATION_LEVEL = 4;
+const SHIP_MAX_EXPLOSION_LEVEL = 5;
+const SHIP_MAX_HULL_LEVEL = 6;
+const SHIP_PENETRATION_DAMAGE_FALLOFF = 0.88;
+const SHIP_EXPLOSION_BASE_RADIUS = 52;
+const SHIP_EXPLOSION_RADIUS_STEP = 11;
+const SHIP_EXPLOSION_BASE_DAMAGE_RATIO = 0.34;
+const SHIP_EXPLOSION_DAMAGE_RATIO_STEP = 0.065;
+const SHIP_EXPLOSION_DAMAGE_RATIO_MAX = 0.66;
 const SHIP_EXPLOSION_EFFECT_MS = 520;
 const EXPLOSION_FRAME_COUNT = 10;
 const EXPLOSION_SEED_BUCKETS = 8;
@@ -1392,7 +1397,7 @@ function getAttackCooldownMs() {
 }
 
 function getShipPenetrationHits() {
-  return Math.max(0, session.battle.ship.penetrationLevel);
+  return clamp(Math.max(0, session.battle.ship.penetrationLevel), 0, SHIP_MAX_PENETRATION_LEVEL);
 }
 
 function getShipExplosionRadius() {
@@ -1420,27 +1425,27 @@ function getHealCost() {
 }
 
 function getSpeedUpgradeCost() {
-  return Math.round(10 * Math.pow(1.32, session.battle.ship.attackSpeedLevel));
+  return Math.round(12 * Math.pow(1.38, session.battle.ship.attackSpeedLevel));
 }
 
 function getPowerUpgradeCost() {
-  return Math.round(12 * Math.pow(1.36, session.battle.ship.attackPowerLevel));
+  return Math.round(14 * Math.pow(1.42, session.battle.ship.attackPowerLevel));
 }
 
 function getBulletUpgradeCost() {
-  return Math.round(18 * Math.pow(1.42, session.battle.ship.projectileLevel));
+  return Math.round(24 * Math.pow(1.58, session.battle.ship.projectileLevel));
 }
 
 function getPenetrationUpgradeCost() {
-  return Math.round(16 * Math.pow(1.4, session.battle.ship.penetrationLevel));
+  return Math.round(24 * Math.pow(1.62, session.battle.ship.penetrationLevel));
 }
 
 function getExplosionUpgradeCost() {
-  return Math.round(20 * Math.pow(1.46, session.battle.ship.explosionLevel));
+  return Math.round(28 * Math.pow(1.68, session.battle.ship.explosionLevel));
 }
 
 function getHullUpgradeCost() {
-  return Math.round(18 * Math.pow(1.38, session.battle.ship.hullLevel));
+  return Math.round(22 * Math.pow(1.48, session.battle.ship.hullLevel));
 }
 
 function setBattleStatus(text, tone = '') {
@@ -1797,6 +1802,10 @@ function refreshBattleHud(index = currentBattleIndex, options = {}) {
     const penetrationCost = getPenetrationUpgradeCost();
     const explosionCost = getExplosionUpgradeCost();
     const hullCost = getHullUpgradeCost();
+    const projectileMaxed = ship.projectileCount >= SHIP_MAX_PROJECTILE_COUNT;
+    const penetrationMaxed = ship.penetrationLevel >= SHIP_MAX_PENETRATION_LEVEL;
+    const explosionMaxed = ship.explosionLevel >= SHIP_MAX_EXPLOSION_LEVEL;
+    const hullMaxed = ship.hullLevel >= SHIP_MAX_HULL_LEVEL;
     setUpgradeButtons(
       root,
       'heal',
@@ -1824,34 +1833,34 @@ function refreshBattleHud(index = currentBattleIndex, options = {}) {
     setUpgradeButtons(
       root,
       'projectile',
-      battle.score.gold < bulletCost,
+      projectileMaxed || battle.score.gold < bulletCost,
       '포탄',
       `${ship.projectileCount}발`,
-      `${bulletCost}G`
+      projectileMaxed ? 'MAX' : `${bulletCost}G`
     );
     setUpgradeButtons(
       root,
       'penetration',
-      battle.score.gold < penetrationCost,
+      penetrationMaxed || battle.score.gold < penetrationCost,
       '관통',
       `Lv.${ship.penetrationLevel}`,
-      `${penetrationCost}G`
+      penetrationMaxed ? 'MAX' : `${penetrationCost}G`
     );
     setUpgradeButtons(
       root,
       'explosion',
-      battle.score.gold < explosionCost,
+      explosionMaxed || battle.score.gold < explosionCost,
       '폭발',
       `Lv.${ship.explosionLevel}`,
-      `${explosionCost}G`
+      explosionMaxed ? 'MAX' : `${explosionCost}G`
     );
     setUpgradeButtons(
       root,
       'hull',
-      battle.score.gold < hullCost,
+      hullMaxed || battle.score.gold < hullCost,
       '선체',
       `Lv.${ship.hullLevel}`,
-      `${hullCost}G`
+      hullMaxed ? 'MAX' : `${hullCost}G`
     );
   }
 }
@@ -1945,6 +1954,10 @@ function handleBattlePointerDown(event) {
 function runShipUpgrade(action) {
   const battle = session.battle;
   const ship = battle.ship;
+  if (action === 'projectile' && ship.projectileCount >= SHIP_MAX_PROJECTILE_COUNT) return false;
+  if (action === 'penetration' && ship.penetrationLevel >= SHIP_MAX_PENETRATION_LEVEL) return false;
+  if (action === 'explosion' && ship.explosionLevel >= SHIP_MAX_EXPLOSION_LEVEL) return false;
+  if (action === 'hull' && ship.hullLevel >= SHIP_MAX_HULL_LEVEL) return false;
   const costMap = {
     speed: getSpeedUpgradeCost,
     power: getPowerUpgradeCost,
@@ -1969,7 +1982,7 @@ function runShipUpgrade(action) {
     setBattleStatus(`공격력 Lv.${ship.attackPowerLevel} 강화`, 'success');
   } else if (action === 'projectile') {
     ship.projectileLevel += 1;
-    ship.projectileCount = Math.min(6, ship.projectileCount + 1);
+    ship.projectileCount = Math.min(SHIP_MAX_PROJECTILE_COUNT, ship.projectileCount + 1);
     setBattleStatus(`포탄 수 ${ship.projectileCount}발`, 'success');
   } else if (action === 'penetration') {
     ship.penetrationLevel += 1;
@@ -2878,7 +2891,7 @@ function applyProjectileExplosion(projectile, sourceEnemyId, enemyGrid = null) {
     const falloff = 1 - clamp(edgeDistance / Math.max(1, radius), 0, 1);
     const explosionDamage = Math.max(1, Math.round(splashDamage * (0.48 + falloff * 0.52)));
     const vectorLength = Math.max(0.0001, centerDistance);
-    const knockback = (10 + explosionLevel * 3.5) * (0.32 + falloff * 0.68);
+    const knockback = (8 + explosionLevel * 2.6) * (0.3 + falloff * 0.64);
     enemy.x += ((enemy.x - impactX) / vectorLength) * knockback;
     enemy.y += ((enemy.y - impactY) / vectorLength) * knockback;
     if (applyDamageToEnemy(enemy, explosionDamage, true)) {
@@ -2892,8 +2905,8 @@ function triggerHullShockwave(touchEnemy, touchDamage) {
   const battle = session.battle;
   const hullLevel = Math.max(0, Number(battle.ship.hullLevel) || 0);
   if (hullLevel <= 0) return;
-  const radius = battle.ship.radius + 34 + hullLevel * 9;
-  const baseDamage = Math.max(5, Math.round((Number(touchDamage) || 0) * 0.18 + hullLevel * 2.4));
+  const radius = battle.ship.radius + 30 + hullLevel * 7;
+  const baseDamage = Math.max(4, Math.round((Number(touchDamage) || 0) * 0.14 + hullLevel * 1.8));
   for (let index = battle.enemies.length - 1; index >= 0; index -= 1) {
     const enemy = battle.enemies[index];
     if (!enemy || enemy.removed || enemy.id === touchEnemy?.id) continue;
@@ -2907,8 +2920,8 @@ function triggerHullShockwave(touchEnemy, touchDamage) {
     const dx = enemy.x - battle.ship.x;
     const dy = enemy.y - battle.ship.y;
     const vectorLength = Math.max(0.0001, Math.hypot(dx, dy));
-    enemy.x += (dx / vectorLength) * (18 + hullLevel * 4);
-    enemy.y += (dy / vectorLength) * (18 + hullLevel * 4);
+    enemy.x += (dx / vectorLength) * (14 + hullLevel * 3);
+    enemy.y += (dy / vectorLength) * (14 + hullLevel * 3);
     if (applyDamageToEnemy(enemy, shockDamage)) {
       removeEnemyAt(index, enemy);
       addKillReward(enemy);
@@ -3020,7 +3033,7 @@ function updateBattle(dtSec, nowMs) {
       }
       if (projectile.remainingHits > 0) {
         projectile.remainingHits -= 1;
-        projectile.damage = Math.max(1, Math.round(projectile.damage * 0.92));
+        projectile.damage = Math.max(1, Math.round(projectile.damage * SHIP_PENETRATION_DAMAGE_FALLOFF));
       } else {
         hit = true;
       }
