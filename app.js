@@ -179,6 +179,12 @@ const SHIP_ATTACK_POWER_LEVEL_STEP = 0.16;
 const SHIP_HULL_HP_STEP = 46;
 const SHIP_HULL_DAMAGE_REDUCTION_STEP = 0.055;
 const SHIP_DAMAGE_REDUCTION_MAX = 0.4;
+const SHIP_EXPLOSION_BASE_RADIUS = 58;
+const SHIP_EXPLOSION_RADIUS_STEP = 14;
+const SHIP_EXPLOSION_BASE_DAMAGE_RATIO = 0.42;
+const SHIP_EXPLOSION_DAMAGE_RATIO_STEP = 0.09;
+const SHIP_EXPLOSION_DAMAGE_RATIO_MAX = 0.82;
+const SHIP_EXPLOSION_EFFECT_MS = 520;
 const BATTLESHIP_RESPAWN_DELAY_MS = 3200;
 const BATTLESHIP_RESPAWN_INVULN_MS = 1200;
 const EARLY_ATTACK_SLOW_WINDOW_SEC = 70;
@@ -644,6 +650,7 @@ function createBattleState(playerIndex = 0) {
     nextSpawnMs: 650,
     nextShotMs: 0,
     spawnSerial: 0,
+    effectSerial: 0,
     worldElapsedMs: 0,
     canvasWidth: 0,
     canvasHeight: 0,
@@ -1082,13 +1089,17 @@ function getShipPenetrationHits() {
 
 function getShipExplosionRadius() {
   return session.battle.ship.explosionLevel > 0
-    ? 44 + Math.max(0, session.battle.ship.explosionLevel - 1) * 12
+    ? SHIP_EXPLOSION_BASE_RADIUS + Math.max(0, session.battle.ship.explosionLevel - 1) * SHIP_EXPLOSION_RADIUS_STEP
     : 0;
 }
 
 function getShipExplosionDamageRatio() {
   return session.battle.ship.explosionLevel > 0
-    ? clamp(0.34 + Math.max(0, session.battle.ship.explosionLevel - 1) * 0.08, 0.34, 0.72)
+    ? clamp(
+      SHIP_EXPLOSION_BASE_DAMAGE_RATIO + Math.max(0, session.battle.ship.explosionLevel - 1) * SHIP_EXPLOSION_DAMAGE_RATIO_STEP,
+      SHIP_EXPLOSION_BASE_DAMAGE_RATIO,
+      SHIP_EXPLOSION_DAMAGE_RATIO_MAX
+    )
     : 0;
 }
 
@@ -1587,7 +1598,7 @@ function runShipUpgrade(action) {
     setBattleStatus(`관통 Lv.${ship.penetrationLevel} 강화`, 'success');
   } else if (action === 'explosion') {
     ship.explosionLevel += 1;
-    setBattleStatus(`폭발탄 Lv.${ship.explosionLevel} 강화`, 'success');
+    setBattleStatus(`폭발탄 Lv.${ship.explosionLevel} · 범위 ${getShipExplosionRadius()} · 주변 피해 ${Math.round(getShipExplosionDamageRatio() * 100)}%`, 'success');
   } else if (action === 'hull') {
     const hpGain = Math.round(SHIP_HULL_HP_STEP * (1 + ship.hullLevel * 0.08));
     ship.hullLevel += 1;
@@ -2194,6 +2205,7 @@ function shootAt(target) {
       radius: 6.5 + Math.min(2, battle.ship.attackPowerLevel * 0.18),
       damage: battle.ship.attackPower,
       remainingHits: getShipPenetrationHits(),
+      explosionLevel: Math.max(0, battle.ship.explosionLevel),
       explosionRadius: getShipExplosionRadius(),
       explosionDamageRatio: getShipExplosionDamageRatio(),
       hitEnemyIds: new Set()
@@ -2245,17 +2257,50 @@ function applyDamageToEnemy(enemy, rawDamage, fromExplosion = false) {
   return enemy.hp <= 0;
 }
 
+function addExplosionEffect(x, y, radius, level = 1, damage = 0) {
+  const battle = session?.battle;
+  if (!battle || radius <= 0) return;
+  battle.effectSerial += 1;
+  battle.effects.push({
+    id: `explosion-${battle.playerIndex}-${battle.effectSerial}`,
+    type: 'explosion',
+    x,
+    y,
+    radius,
+    level: Math.max(1, Number(level) || 1),
+    damage: Math.max(0, Math.round(Number(damage) || 0)),
+    startedAtMs: performance.now(),
+    durationMs: SHIP_EXPLOSION_EFFECT_MS,
+    seed: battleRandom()
+  });
+  if (battle.effects.length > 36) {
+    battle.effects.splice(0, battle.effects.length - 36);
+  }
+}
+
 function applyProjectileExplosion(projectile, sourceEnemyId) {
   const battle = session.battle;
   const radius = Math.max(0, Number(projectile?.explosionRadius) || 0);
   const damageRatio = clamp(Number(projectile?.explosionDamageRatio) || 0, 0, 1);
   if (radius <= 0 || damageRatio <= 0) return;
+  const impactX = Number(projectile?.x) || 0;
+  const impactY = Number(projectile?.y) || 0;
   const splashDamage = Math.max(1, Math.round((Number(projectile?.damage) || 0) * damageRatio));
+  const explosionLevel = Math.max(1, Number(projectile?.explosionLevel) || 1);
+  addExplosionEffect(impactX, impactY, radius, explosionLevel, splashDamage);
   for (let index = battle.enemies.length - 1; index >= 0; index -= 1) {
     const enemy = battle.enemies[index];
     if (!enemy || enemy.id === sourceEnemyId) continue;
-    if (distance(projectile.x, projectile.y, enemy.x, enemy.y) > radius + enemy.radius) continue;
-    if (applyDamageToEnemy(enemy, splashDamage, true)) {
+    const centerDistance = distance(impactX, impactY, enemy.x, enemy.y);
+    const edgeDistance = Math.max(0, centerDistance - enemy.radius);
+    if (edgeDistance > radius) continue;
+    const falloff = 1 - clamp(edgeDistance / Math.max(1, radius), 0, 1);
+    const explosionDamage = Math.max(1, Math.round(splashDamage * (0.48 + falloff * 0.52)));
+    const vectorLength = Math.max(0.0001, centerDistance);
+    const knockback = (10 + explosionLevel * 3.5) * (0.32 + falloff * 0.68);
+    enemy.x += ((enemy.x - impactX) / vectorLength) * knockback;
+    enemy.y += ((enemy.y - impactY) / vectorLength) * knockback;
+    if (applyDamageToEnemy(enemy, explosionDamage, true)) {
       battle.enemies.splice(index, 1);
       addKillReward(enemy);
     }
@@ -2387,6 +2432,14 @@ function updateBattle(dtSec, nowMs) {
       break;
     }
     if (hit) battle.projectiles.splice(index, 1);
+  }
+
+  for (let index = battle.effects.length - 1; index >= 0; index -= 1) {
+    const effect = battle.effects[index];
+    const durationMs = Math.max(1, Number(effect?.durationMs) || 1);
+    if (nowMs - (Number(effect?.startedAtMs) || 0) >= durationMs) {
+      battle.effects.splice(index, 1);
+    }
   }
 
   for (let index = battle.enemies.length - 1; index >= 0; index -= 1) {
@@ -2791,17 +2844,74 @@ function drawEnemy(ctx, enemy) {
   }
 }
 
+function drawExplosionEffect(ctx, effect, nowMs) {
+  const startedAtMs = Number(effect?.startedAtMs) || nowMs;
+  const durationMs = Math.max(1, Number(effect?.durationMs) || SHIP_EXPLOSION_EFFECT_MS);
+  const progress = clamp((nowMs - startedAtMs) / durationMs, 0, 1);
+  const alpha = 1 - progress;
+  const easeOut = 1 - Math.pow(1 - progress, 2);
+  const radius = Math.max(4, Number(effect?.radius) || 0);
+  const level = Math.max(1, Number(effect?.level) || 1);
+  const coreRadius = radius * (0.16 + easeOut * 0.22);
+  const ringRadius = radius * (0.32 + easeOut * 0.92);
+  const particleCount = Math.round(clamp(7 + level * 2, 7, 16));
+  const seed = Number(effect?.seed) || 0;
+
+  ctx.save();
+  ctx.globalCompositeOperation = 'lighter';
+  const gradient = ctx.createRadialGradient(effect.x, effect.y, 1, effect.x, effect.y, Math.max(coreRadius, 2));
+  gradient.addColorStop(0, `rgba(255, 255, 255, ${0.78 * alpha})`);
+  gradient.addColorStop(0.32, `rgba(255, 228, 102, ${0.62 * alpha})`);
+  gradient.addColorStop(1, `rgba(249, 115, 22, ${0.12 * alpha})`);
+  ctx.fillStyle = gradient;
+  ctx.beginPath();
+  ctx.arc(effect.x, effect.y, coreRadius, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.strokeStyle = `rgba(255, 237, 147, ${0.86 * alpha})`;
+  ctx.lineWidth = Math.max(2, 5 * alpha);
+  ctx.beginPath();
+  ctx.arc(effect.x, effect.y, ringRadius, 0, Math.PI * 2);
+  ctx.stroke();
+
+  ctx.strokeStyle = `rgba(251, 146, 60, ${0.52 * alpha})`;
+  ctx.lineWidth = Math.max(1, 2.5 * alpha);
+  ctx.beginPath();
+  ctx.arc(effect.x, effect.y, radius * (0.48 + easeOut * 0.72), 0, Math.PI * 2);
+  ctx.stroke();
+
+  for (let index = 0; index < particleCount; index += 1) {
+    const angle = (Math.PI * 2 * index) / particleCount + seed * Math.PI * 2;
+    const spread = radius * (0.16 + easeOut * (0.42 + ((index % 3) * 0.08)));
+    const x = effect.x + Math.cos(angle) * spread;
+    const y = effect.y + Math.sin(angle) * spread;
+    ctx.fillStyle = `rgba(255, ${Math.round(170 + (index % 4) * 18)}, 72, ${0.72 * alpha})`;
+    ctx.beginPath();
+    ctx.arc(x, y, Math.max(1.5, (4 + level * 0.45) * alpha), 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.restore();
+}
+
+function drawBattleEffects(ctx, effects, nowMs) {
+  if (!Array.isArray(effects) || !effects.length) return;
+  effects.forEach((effect) => {
+    if (effect?.type === 'explosion') drawExplosionEffect(ctx, effect, nowMs);
+  });
+}
+
 function drawBattle() {
   if (!session || !battleCanvas || !battleCtx) return;
   syncCanvasSize();
   const ctx = battleCtx;
   const battle = session.battle;
+  const nowMs = performance.now();
   const width = battle.canvasWidth;
   const height = battle.canvasHeight;
   ctx.clearRect(0, 0, width, height);
   drawBackground(ctx, width, height, battle.waves.elapsedSec);
 
-  drawShip(ctx, battle.ship, performance.now());
+  drawShip(ctx, battle.ship, nowMs);
 
   battle.enemies.forEach((enemy) => drawEnemy(ctx, enemy));
 
@@ -2817,6 +2927,8 @@ function drawBattle() {
     ctx.stroke();
   });
   ctx.restore();
+
+  drawBattleEffects(ctx, battle.effects, nowMs);
 
   if (!isTabletFaceToFaceSession()) {
     drawShipHpGauge(ctx, battle.ship, width);
@@ -3259,6 +3371,84 @@ function bindEvents() {
 }
 
 window.__KNOLQUIZ_TEST__ = {
+  getBattleSnapshot(playerIndex = currentBattleIndex) {
+    if (!session) return null;
+    setBattleContext(playerIndex);
+    const battle = session.battle;
+    return {
+      playerIndex: battle.playerIndex,
+      gold: battle.score.gold,
+      enemies: battle.enemies.map((enemy) => ({
+        id: enemy.id,
+        hp: Math.round(enemy.hp),
+        x: Math.round(enemy.x),
+        y: Math.round(enemy.y)
+      })),
+      effects: battle.effects.map((effect) => ({
+        type: effect.type,
+        radius: Math.round(effect.radius),
+        level: effect.level
+      })),
+      ship: {
+        hp: Math.round(battle.ship.hp),
+        maxHp: battle.ship.maxHp,
+        attackPower: battle.ship.attackPower,
+        attackCooldownMs: Math.round(getAttackCooldownMs()),
+        attackSpeedLevel: battle.ship.attackSpeedLevel,
+        attackPowerLevel: battle.ship.attackPowerLevel,
+        projectileCount: battle.ship.projectileCount,
+        penetrationLevel: battle.ship.penetrationLevel,
+        explosionLevel: battle.ship.explosionLevel,
+        explosionRadius: getShipExplosionRadius(),
+        explosionDamageRatio: getShipExplosionDamageRatio(),
+        damageReductionRatio: getShipDamageReductionRatio()
+      }
+    };
+  },
+  grantGold(amount = 1000, playerIndex = currentBattleIndex) {
+    if (!session) return false;
+    setBattleContext(playerIndex);
+    session.battle.score.gold += Math.max(0, Math.round(Number(amount) || 0));
+    refreshBattleHud(playerIndex);
+    return session.battle.score.gold;
+  },
+  forceEnemyCluster(playerIndex = currentBattleIndex, count = 4) {
+    if (!session) return false;
+    setBattleContext(playerIndex);
+    const battle = session.battle;
+    const def = ENEMY_DEFINITIONS[0];
+    const centerX = battle.ship.x + Math.min(92, battle.canvasWidth * 0.24);
+    const centerY = battle.ship.y;
+    const total = clamp(Math.round(Number(count) || 4), 2, 8);
+    for (let index = 0; index < total; index += 1) {
+      const angle = (Math.PI * 2 * index) / total;
+      const spread = index === 0 ? 0 : 18 + (index % 2) * 8;
+      battle.spawnSerial += 1;
+      battle.enemies.push({
+        id: `test-cluster-${battle.playerIndex}-${battle.spawnSerial}`,
+        tier: def.tier,
+        typeCode: def.code,
+        typeName: def.name,
+        role: 'swarm',
+        roleLabel: '무리형',
+        elite: false,
+        hardened: false,
+        x: centerX + Math.cos(angle) * spread,
+        y: centerY + Math.sin(angle) * spread,
+        radius: 16,
+        speed: 0,
+        hp: 16,
+        maxHp: 16,
+        touchDamage: 1,
+        renderSize: 50,
+        hasBeenVisible: true,
+        wobbleSeed: battleRandom() * Math.PI * 2
+      });
+    }
+    battle.nextShotMs = Math.min(battle.nextShotMs, battle.worldElapsedMs + 20);
+    drawBattle();
+    return battle.enemies.length;
+  },
   finishNow() {
     if (!session) return false;
     session.deadlineAt = Date.now() - 1;
