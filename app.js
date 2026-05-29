@@ -185,6 +185,9 @@ const SHIP_EXPLOSION_BASE_DAMAGE_RATIO = 0.42;
 const SHIP_EXPLOSION_DAMAGE_RATIO_STEP = 0.09;
 const SHIP_EXPLOSION_DAMAGE_RATIO_MAX = 0.82;
 const SHIP_EXPLOSION_EFFECT_MS = 520;
+const EXPLOSION_FRAME_COUNT = 10;
+const EXPLOSION_SEED_BUCKETS = 8;
+const EXPLOSION_FRAME_CACHE_LIMIT = 240;
 const BATTLESHIP_RESPAWN_DELAY_MS = 3200;
 const BATTLESHIP_RESPAWN_INVULN_MS = 1200;
 const EARLY_ATTACK_SLOW_WINDOW_SEC = 70;
@@ -206,6 +209,7 @@ const KILL_SCORE_TIER_STEP = 14;
 const KILL_SCORE_COMBO_STEP = 0.015;
 const KILL_SCORE_COMBO_MAX = 0.36;
 const projectileAngleOffsetCache = new Map();
+const explosionFrameCache = new Map();
 
 const elements = {
   setupScreen: $('#setup-screen'),
@@ -3346,52 +3350,104 @@ function drawEnemy(ctx, enemy, nowMs) {
   }
 }
 
-function drawExplosionEffect(ctx, effect, nowMs) {
-  const startedAtMs = Number(effect?.startedAtMs) || nowMs;
-  const durationMs = Math.max(1, Number(effect?.durationMs) || SHIP_EXPLOSION_EFFECT_MS);
-  const progress = clamp((nowMs - startedAtMs) / durationMs, 0, 1);
+function drawExplosionFramePrimitives(ctx, centerX, centerY, radius, level, seed, progress) {
   const alpha = 1 - progress;
   const easeOut = 1 - Math.pow(1 - progress, 2);
-  const radius = Math.max(4, Number(effect?.radius) || 0);
-  const level = Math.max(1, Number(effect?.level) || 1);
   const coreRadius = radius * (0.16 + easeOut * 0.22);
   const ringRadius = radius * (0.32 + easeOut * 0.92);
   const particleCount = Math.round(clamp(7 + level * 2, 7, 16));
-  const seed = Number(effect?.seed) || 0;
 
   ctx.save();
   ctx.globalCompositeOperation = 'lighter';
-  const gradient = ctx.createRadialGradient(effect.x, effect.y, 1, effect.x, effect.y, Math.max(coreRadius, 2));
+  const gradient = ctx.createRadialGradient(centerX, centerY, 1, centerX, centerY, Math.max(coreRadius, 2));
   gradient.addColorStop(0, `rgba(255, 255, 255, ${0.78 * alpha})`);
   gradient.addColorStop(0.32, `rgba(255, 228, 102, ${0.62 * alpha})`);
   gradient.addColorStop(1, `rgba(249, 115, 22, ${0.12 * alpha})`);
   ctx.fillStyle = gradient;
   ctx.beginPath();
-  ctx.arc(effect.x, effect.y, coreRadius, 0, Math.PI * 2);
+  ctx.arc(centerX, centerY, coreRadius, 0, Math.PI * 2);
   ctx.fill();
 
   ctx.strokeStyle = `rgba(255, 237, 147, ${0.86 * alpha})`;
   ctx.lineWidth = Math.max(2, 5 * alpha);
   ctx.beginPath();
-  ctx.arc(effect.x, effect.y, ringRadius, 0, Math.PI * 2);
+  ctx.arc(centerX, centerY, ringRadius, 0, Math.PI * 2);
   ctx.stroke();
 
   ctx.strokeStyle = `rgba(251, 146, 60, ${0.52 * alpha})`;
   ctx.lineWidth = Math.max(1, 2.5 * alpha);
   ctx.beginPath();
-  ctx.arc(effect.x, effect.y, radius * (0.48 + easeOut * 0.72), 0, Math.PI * 2);
+  ctx.arc(centerX, centerY, radius * (0.48 + easeOut * 0.72), 0, Math.PI * 2);
   ctx.stroke();
 
   for (let index = 0; index < particleCount; index += 1) {
     const angle = (Math.PI * 2 * index) / particleCount + seed * Math.PI * 2;
     const spread = radius * (0.16 + easeOut * (0.42 + ((index % 3) * 0.08)));
-    const x = effect.x + Math.cos(angle) * spread;
-    const y = effect.y + Math.sin(angle) * spread;
+    const x = centerX + Math.cos(angle) * spread;
+    const y = centerY + Math.sin(angle) * spread;
     ctx.fillStyle = `rgba(255, ${Math.round(170 + (index % 4) * 18)}, 72, ${0.72 * alpha})`;
     ctx.beginPath();
     ctx.arc(x, y, Math.max(1.5, (4 + level * 0.45) * alpha), 0, Math.PI * 2);
     ctx.fill();
   }
+  ctx.restore();
+}
+
+function trimExplosionFrameCache() {
+  while (explosionFrameCache.size > EXPLOSION_FRAME_CACHE_LIMIT) {
+    const firstKey = explosionFrameCache.keys().next().value;
+    if (!firstKey) break;
+    explosionFrameCache.delete(firstKey);
+  }
+}
+
+function getExplosionFrameSprite(effect, progress) {
+  const radius = Math.max(4, Number(effect?.radius) || 0);
+  const level = Math.max(1, Math.round(Number(effect?.level) || 1));
+  const radiusBucket = Math.max(4, Math.round(radius / 4) * 4);
+  const levelBucket = Math.min(16, level);
+  const seedValue = Number(effect?.seed) || 0;
+  const seedBucket = Math.floor(clamp(seedValue, 0, 0.999999) * EXPLOSION_SEED_BUCKETS);
+  const frameIndex = clamp(Math.floor(progress * EXPLOSION_FRAME_COUNT), 0, EXPLOSION_FRAME_COUNT - 1);
+  const frameProgress = clamp((frameIndex + 0.5) / EXPLOSION_FRAME_COUNT, 0, 1);
+  const cacheKey = `${radiusBucket}:${levelBucket}:${seedBucket}:${frameIndex}`;
+  const cached = explosionFrameCache.get(cacheKey);
+  if (cached) return cached;
+
+  const extent = Math.ceil(radiusBucket * 1.3 + levelBucket * 1.5 + 10);
+  const size = Math.max(24, extent * 2);
+  const canvas = document.createElement('canvas');
+  canvas.width = size;
+  canvas.height = size;
+  const frameCtx = canvas.getContext('2d');
+  if (!frameCtx) return null;
+  drawExplosionFramePrimitives(
+    frameCtx,
+    extent,
+    extent,
+    radiusBucket,
+    levelBucket,
+    seedBucket / EXPLOSION_SEED_BUCKETS,
+    frameProgress
+  );
+  const frame = { canvas, extent, size };
+  explosionFrameCache.set(cacheKey, frame);
+  trimExplosionFrameCache();
+  return frame;
+}
+
+function drawExplosionEffect(ctx, effect, nowMs) {
+  const startedAtMs = Number(effect?.startedAtMs) || nowMs;
+  const durationMs = Math.max(1, Number(effect?.durationMs) || SHIP_EXPLOSION_EFFECT_MS);
+  const progress = clamp((nowMs - startedAtMs) / durationMs, 0, 1);
+  const frame = getExplosionFrameSprite(effect, progress);
+  if (!frame?.canvas) {
+    drawExplosionFramePrimitives(ctx, effect.x, effect.y, Math.max(4, Number(effect?.radius) || 0), Math.max(1, Number(effect?.level) || 1), Number(effect?.seed) || 0, progress);
+    return;
+  }
+  ctx.save();
+  ctx.globalCompositeOperation = 'lighter';
+  ctx.drawImage(frame.canvas, effect.x - frame.extent, effect.y - frame.extent, frame.size, frame.size);
   ctx.restore();
 }
 
@@ -3409,6 +3465,35 @@ function isDrawAreaVisible(x, y, radius, width, height, margin = 0) {
     && x - extent <= width
     && y + extent >= 0
     && y - extent <= height;
+}
+
+function drawProjectileGroup(ctx, projectiles, width, height, hasExplosion) {
+  let drew = false;
+  ctx.beginPath();
+  for (let index = 0; index < projectiles.length; index += 1) {
+    const projectile = projectiles[index];
+    if (Boolean(projectile.explosionRadius > 0) !== hasExplosion) continue;
+    if (!isDrawAreaVisible(projectile.x, projectile.y, projectile.radius, width, height, 8)) continue;
+    ctx.moveTo(projectile.x + projectile.radius, projectile.y);
+    ctx.arc(projectile.x, projectile.y, projectile.radius, 0, Math.PI * 2);
+    drew = true;
+  }
+  if (!drew) return;
+  ctx.fill();
+  ctx.stroke();
+}
+
+function drawProjectiles(ctx, projectiles, width, height) {
+  if (!Array.isArray(projectiles) || !projectiles.length) return;
+  ctx.save();
+  ctx.lineWidth = 2;
+  ctx.fillStyle = '#f9e27d';
+  ctx.strokeStyle = 'rgba(120,53,15,0.55)';
+  drawProjectileGroup(ctx, projectiles, width, height, false);
+  ctx.fillStyle = '#fb923c';
+  ctx.strokeStyle = 'rgba(124,45,18,0.68)';
+  drawProjectileGroup(ctx, projectiles, width, height, true);
+  ctx.restore();
 }
 
 function drawBattle() {
@@ -3434,20 +3519,7 @@ function drawBattle() {
     }
   }
 
-  ctx.save();
-  for (let index = 0; index < battle.projectiles.length; index += 1) {
-    const projectile = battle.projectiles[index];
-    if (!isDrawAreaVisible(projectile.x, projectile.y, projectile.radius, width, height, 8)) continue;
-    const hasExplosion = projectile.explosionRadius > 0;
-    ctx.fillStyle = hasExplosion ? '#fb923c' : '#f9e27d';
-    ctx.strokeStyle = hasExplosion ? 'rgba(124,45,18,0.68)' : 'rgba(120,53,15,0.55)';
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.arc(projectile.x, projectile.y, projectile.radius, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.stroke();
-  }
-  ctx.restore();
+  drawProjectiles(ctx, battle.projectiles, width, height);
 
   drawBattleEffects(ctx, battle.effects, nowMs, width, height);
 
