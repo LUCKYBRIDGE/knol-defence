@@ -14,6 +14,7 @@
   --red: #c2413a;
   --shadow: 0 16px 36px rgba(20, 32, 47, 0.14);
   --radius: 8px;
+  --tablet-face-portrait-ratio: 0.695;
 }
 
 .theme-jumpmap {
@@ -258,6 +259,12 @@ body[data-screen="result"] .app-shell {
   grid-template-rows: minmax(0, 1fr);
 }
 
+body[data-screen="play"][data-tablet-face="true"] .app-shell,
+body[data-screen="result"][data-tablet-face="true"] .app-shell {
+  width: min(920px, calc(100dvw - 8px), calc(100dvh * var(--tablet-face-portrait-ratio)));
+  padding-block: 4px;
+}
+
 body[data-screen="play"] .topbar,
 body[data-screen="result"] .topbar {
   display: none;
@@ -290,6 +297,7 @@ body[data-screen="result"] .screen-stack {
 .screen-heading,
 .result-header,
 .play-topline {
+  min-width: 0;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -695,6 +703,7 @@ select {
 }
 
 .game-stage {
+  min-width: 0;
   min-height: 0;
   border: 1px solid var(--line);
   border-radius: var(--radius);
@@ -797,6 +806,9 @@ select {
 
 .stage-panel-tablet-face {
   padding: 4px;
+  margin-inline: auto;
+  width: 100%;
+  max-width: 100%;
 }
 
 .tablet-face-grid {
@@ -4566,7 +4578,7 @@ select {
 }
 
 .result-modal.is-tablet-face-result {
-  width: min(980px, 100%);
+  width: min(920px, calc(100dvw - 12px), calc(100dvh * var(--tablet-face-portrait-ratio)));
   height: calc(100dvh - 12px);
   max-height: calc(100dvh - 12px);
   position: relative;

@@ -421,6 +421,21 @@ function getViewportMetrics() {
   };
 }
 
+function syncTabletFaceLayoutBasis() {
+  const active = Boolean(session && isTabletFaceToFaceSession());
+  document.body.dataset.tabletFace = String(active);
+  if (!active) {
+    document.documentElement.style.removeProperty('--tablet-face-portrait-ratio');
+    return;
+  }
+  const { minSide, maxSide } = getViewportMetrics();
+  const measuredRatio = maxSide > 0 ? minSide / maxSide : 0.695;
+  const portraitRatio = measuredRatio >= 0.63 && measuredRatio <= 0.78
+    ? measuredRatio
+    : 0.695;
+  document.documentElement.style.setProperty('--tablet-face-portrait-ratio', portraitRatio.toFixed(3));
+}
+
 function selectNextDisplayMode() {
   const index = DISPLAY_MODES.findIndex((mode) => mode.id === selectedDisplayMode);
   selectedDisplayMode = DISPLAY_MODES[(index + 1 + DISPLAY_MODES.length) % DISPLAY_MODES.length]?.id || 'auto';
@@ -1890,6 +1905,7 @@ function renderQuestion(battleIndex = currentBattleIndex) {
 function renderPlay() {
   if (!session) return;
   const tabletFace = isTabletFaceToFaceSession();
+  syncTabletFaceLayoutBasis();
   document.body.dataset.displayMode = session.displayMode;
   document.body.dataset.displayModeChoice = session.displayModeChoice;
   document.body.dataset.tabletFace = String(tabletFace);
@@ -3132,8 +3148,8 @@ async function startSelectedGame() {
     currentBattleIndex = 0;
     nextQuestion();
     showScreen('play');
-    renderStageShell();
     renderPlay();
+    renderStageShell();
     startTimer();
     startBattleLoop();
   } catch (error) {
@@ -3210,6 +3226,7 @@ function renderResult() {
   });
   const isMultiPlayerResult = session.players.length > 1;
   const isTabletFaceResult = isTabletFaceToFaceSession();
+  syncTabletFaceLayoutBasis();
   const resultModal = $('.result-modal', elements.resultScreen);
   resultModal?.classList.toggle('is-split-result', isMultiPlayerResult);
   resultModal?.classList.toggle('is-tablet-face-result', isTabletFaceResult);
@@ -3374,6 +3391,7 @@ function abandonSession() {
   session?.battles?.forEach(clearQuizAutoAdvance);
   session?.playerQuizStates?.forEach(clearQuizAutoAdvance);
   session = null;
+  syncTabletFaceLayoutBasis();
   battleCanvas = null;
   battleCtx = null;
   battleViews = [];
@@ -3460,6 +3478,7 @@ function bindEvents() {
   });
   elements.gameStage.addEventListener('pointerdown', handleBattlePointerDown);
   window.addEventListener('resize', () => {
+    syncTabletFaceLayoutBasis();
     syncAllCanvasSizes();
     if (!session) updateSetupSummary();
     if (session) {
