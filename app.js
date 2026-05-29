@@ -199,6 +199,8 @@ const QUIZ_AUTO_CLOSE_DELAY_MS = 920;
 const HUD_REFRESH_INTERVAL_MS = 140;
 const CANVAS_SYNC_INTERVAL_MS = 220;
 const MIN_START_LOADING_MS = 850;
+const SPAWN_PLAN_BUFFER = 96;
+const ENEMY_SPATIAL_CELL_SIZE = 96;
 const KILL_SCORE_BASE = 25;
 const KILL_SCORE_TIER_STEP = 14;
 const KILL_SCORE_COMBO_STEP = 0.015;
@@ -310,6 +312,39 @@ function createBattleRandomState(sessionSeed) {
 function battleRandom(channel = 'spawn') {
   const generator = session?.battle?.random?.[channel] || session?.battle?.random?.spawn;
   return typeof generator === 'function' ? generator() : Math.random();
+}
+
+function createSpawnEnemyPlan(random) {
+  return {
+    sideRoll: random(),
+    laneRoll: random(),
+    definitionRoll: random(),
+    eliteRoll: random(),
+    hardenedRoll: random(),
+    hpRoll: random(),
+    speedRoll: random(),
+    wobbleRoll: random()
+  };
+}
+
+function createSpawnEventPlan(random) {
+  return {
+    burstRoll: random(),
+    enemies: [
+      createSpawnEnemyPlan(random),
+      createSpawnEnemyPlan(random)
+    ]
+  };
+}
+
+function getSpawnPlanSize(durationSec) {
+  const spawnTicks = Math.ceil((Math.max(60, Number(durationSec) || 60) * 1000) / SPAWN_MIN_COOLDOWN_MS);
+  return spawnTicks + SPAWN_PLAN_BUFFER;
+}
+
+function createSpawnPlan(sessionSeed, playerIndex, durationSec) {
+  const random = createSeededRandom(hashSeed(`${sessionSeed}:spawn-plan:${playerIndex}:${durationSec}`));
+  return Array.from({ length: getSpawnPlanSize(durationSec) }, () => createSpawnEventPlan(random));
 }
 
 function clamp(value, min, max) {
@@ -748,6 +783,7 @@ function warmupEnemyVariantSprites() {
       getTintedEnemySprite(image, style);
       if (style.outline) getEnemySilhouetteSprite(image, style.outline);
       if (style.outerOutline) getEnemySilhouetteSprite(image, style.outerOutline);
+      getCompositeEnemySprite(image, style);
     });
   });
 }
@@ -913,9 +949,12 @@ function createBattleState(playerIndex = 0) {
       elapsedSec: 0
     },
     enemies: [],
+    enemiesNeedCompact: false,
     projectiles: [],
     effects: [],
-    random: null
+    random: null,
+    spawnPlan: [],
+    spawnPlanIndex: 0
   };
 }
 
@@ -975,6 +1014,8 @@ function buildSession(questions) {
   sessionState.battle = sessionState.battles[0];
   sessionState.battles.forEach((battle) => {
     battle.random = createBattleRandomState(combatSeed);
+    battle.spawnPlan = createSpawnPlan(combatSeed, battle.playerIndex, sessionState.durationSec);
+    battle.spawnPlanIndex = 0;
     battle.questionQueue = shuffle(questions);
   });
   return sessionState;
@@ -1199,10 +1240,10 @@ function getEliteUnlockedTier(elapsedSec) {
   return clamp(tier, 1, 10);
 }
 
-function shouldSpawnEliteEnemy(elapsedSec, eliteTier) {
+function shouldSpawnEliteEnemy(elapsedSec, eliteTier, roll01 = null) {
   if (eliteTier <= 0) return false;
   const chance = clamp(0.08 + ((elapsedSec - ELITE_UNLOCK_TIME_SEC) / 280) * 0.5, 0.08, 0.55);
-  return battleRandom() < chance;
+  return ((roll01 ?? battleRandom()) || 0) < chance;
 }
 
 function getLateWavePressure(elapsedSec) {
@@ -2247,14 +2288,25 @@ function syncAllCanvasSizes() {
   });
 }
 
-function getEnemySpawnPoint(radius) {
+function getNextSpawnEventPlan() {
+  const battle = session.battle;
+  if (!Array.isArray(battle.spawnPlan)) battle.spawnPlan = [];
+  if (!Number.isFinite(battle.spawnPlanIndex)) battle.spawnPlanIndex = 0;
+  if (battle.spawnPlanIndex >= battle.spawnPlan.length) {
+    const random = battle.random?.spawn || Math.random;
+    battle.spawnPlan.push(createSpawnEventPlan(random));
+  }
+  return battle.spawnPlan[battle.spawnPlanIndex++];
+}
+
+function getEnemySpawnPoint(radius, plan = null) {
   const battle = session.battle;
   const width = battle.canvasWidth;
   const height = battle.canvasHeight;
   const offset = Math.max(48, Math.round(radius + 24));
-  const baseSide = Math.floor(battleRandom() * 4);
+  const baseSide = Math.floor(((plan?.sideRoll ?? battleRandom()) || 0) * 4);
   const side = (baseSide + (battle.playerIndex % 4)) % 4;
-  const rawLane = 0.08 + battleRandom() * 0.84;
+  const rawLane = 0.08 + ((plan?.laneRoll ?? battleRandom()) || 0) * 0.84;
   const lane = battle.playerIndex % 2 === 0 ? rawLane : 1 - rawLane;
   if (side === 0) return { x: lane * width, y: -offset };
   if (side === 1) return { x: width + offset, y: lane * height };
@@ -2262,12 +2314,12 @@ function getEnemySpawnPoint(radius) {
   return { x: -offset, y: lane * height };
 }
 
-function pickSpawnDefinition(maxTier, preferHigh = false) {
+function pickSpawnDefinition(maxTier, preferHigh = false, roll01 = null) {
   const defs = ENEMY_DEFINITIONS.filter((def) => def.tier <= maxTier);
   const totalWeight = defs.reduce((sum, def) => (
     sum + (preferHigh ? (1 + (def.tier - 1) * 0.42) : (1 + (maxTier - def.tier) * 0.35))
   ), 0);
-  let roll = battleRandom() * totalWeight;
+  let roll = ((roll01 ?? battleRandom()) || 0) * totalWeight;
   for (let index = 0; index < defs.length; index += 1) {
     const def = defs[index];
     roll -= preferHigh ? (1 + (def.tier - 1) * 0.42) : (1 + (maxTier - def.tier) * 0.35);
@@ -2281,13 +2333,14 @@ function createEnemyFromDefinition(def, elapsedSec, options = {}) {
   const elite = options.elite === true;
   const hardened = options.hardened === true;
   const flowSpeedMul = Number(options.flowSpeedMul) > 0 ? Number(options.flowSpeedMul) : 1;
+  const plan = options.plan || null;
   const roleConfig = getEnemyRoleConfig(def.tier);
   const hpScale = 1 + Math.floor(elapsedSec / HP_GROWTH_STEP_SEC) * HP_GROWTH_PER_STEP;
   const speedScale = 1 + Math.floor(elapsedSec / SPEED_GROWTH_STEP_SEC) * SPEED_GROWTH_PER_STEP;
   const touchScale = 1 + Math.floor(elapsedSec / TOUCH_GROWTH_STEP_SEC) * TOUCH_GROWTH_PER_STEP;
   const tierStrengthStep = def.tier - 1;
-  let hp = Math.round((def.baseHp + battleRandom() * 8) * hpScale);
-  let speed = (def.baseSpeed + battleRandom() * 14) * speedScale;
+  let hp = Math.round((def.baseHp + ((plan?.hpRoll ?? battleRandom()) || 0) * 8) * hpScale);
+  let speed = (def.baseSpeed + ((plan?.speedRoll ?? battleRandom()) || 0) * 14) * speedScale;
   let touchDamage = Math.round(def.baseTouchDamage * touchScale);
   let renderSize = def.baseSize + Math.floor(elapsedSec / SIZE_GROWTH_STEP_SEC);
 
@@ -2351,7 +2404,7 @@ function createEnemyFromDefinition(def, elapsedSec, options = {}) {
   speed *= flowSpeedMul;
 
   const radius = Math.max(14, Math.round(renderSize * (elite ? 0.31 : 0.27)));
-  const spawnPoint = getEnemySpawnPoint(radius);
+  const spawnPoint = getEnemySpawnPoint(radius, plan);
   battle.spawnSerial += 1;
   return {
     id: `enemy-${battle.playerIndex}-${battle.spawnSerial}`,
@@ -2371,17 +2424,17 @@ function createEnemyFromDefinition(def, elapsedSec, options = {}) {
     touchDamage,
     renderSize,
     hasBeenVisible: false,
-    wobbleSeed: battleRandom() * Math.PI * 2
+    wobbleSeed: ((plan?.wobbleRoll ?? battleRandom()) || 0) * Math.PI * 2
   };
 }
 
-function shouldSpawnHardenedEnemy(elapsedSec, flow, def) {
+function shouldSpawnHardenedEnemy(elapsedSec, flow, def, roll01 = null) {
   if (elapsedSec < 45) return false;
   const tierBonus = Math.max(0, def.tier - 1) * 0.008;
   const elapsedBonus = clamp((elapsedSec - 45) / 360, 0, 1) * 0.18;
   const flowBonus = Number(flow?.hardenedBonus) || 0;
   const chance = clamp(0.045 + tierBonus + elapsedBonus + flowBonus, 0.01, 0.42);
-  return battleRandom() < chance;
+  return ((roll01 ?? battleRandom()) || 0) < chance;
 }
 
 function spawnEnemy(flow) {
@@ -2393,18 +2446,21 @@ function spawnEnemy(flow) {
   const cap = Math.max(5, softCap + (Number(flow?.capBonus) || 0) + getLateWavePressure(elapsedSec));
   if (battle.enemies.length >= cap) return;
 
+  const spawnPlan = getNextSpawnEventPlan();
   const burstChance = clamp(0.16 + (elapsedSec / 960) + getLateWavePressure(elapsedSec) * 0.03, 0.16, 0.5);
-  const spawnCount = battleRandom() < burstChance ? 2 : 1;
+  const spawnCount = ((spawnPlan?.burstRoll ?? battleRandom()) || 0) < burstChance ? 2 : 1;
   for (let index = 0; index < spawnCount; index += 1) {
     if (battle.enemies.length >= cap) break;
+    const enemyPlan = spawnPlan?.enemies?.[index] || null;
     const eliteTier = getEliteUnlockedTier(elapsedSec);
-    const elite = shouldSpawnEliteEnemy(elapsedSec, eliteTier);
+    const elite = shouldSpawnEliteEnemy(elapsedSec, eliteTier, enemyPlan?.eliteRoll);
     const maxTier = elite ? eliteTier : getUnlockedEnemyTier(elapsedSec);
-    const def = pickSpawnDefinition(maxTier, elite);
+    const def = pickSpawnDefinition(maxTier, elite, enemyPlan?.definitionRoll);
     const enemy = createEnemyFromDefinition(def, elapsedSec, {
       elite,
-      hardened: !elite && shouldSpawnHardenedEnemy(elapsedSec, flow, def),
-      flowSpeedMul: Number(flow?.speedMul) || 1
+      hardened: !elite && shouldSpawnHardenedEnemy(elapsedSec, flow, def, enemyPlan?.hardenedRoll),
+      flowSpeedMul: Number(flow?.speedMul) || 1,
+      plan: enemyPlan
     });
     battle.enemies.push(enemy);
   }
@@ -2416,6 +2472,7 @@ function getNearestEnemy() {
   let nearestDistSq = Number.POSITIVE_INFINITY;
   for (let index = 0; index < battle.enemies.length; index += 1) {
     const enemy = battle.enemies[index];
+    if (!enemy || enemy.removed) continue;
     const distSq = distanceSq(battle.ship.x, battle.ship.y, enemy.x, enemy.y);
     if (distSq < nearestDistSq) {
       nearest = enemy;
@@ -2518,6 +2575,59 @@ function applyDamageToEnemy(enemy, rawDamage, fromExplosion = false) {
   return enemy.hp <= 0;
 }
 
+function markEnemyRemoved(enemy) {
+  if (enemy) enemy.removed = true;
+}
+
+function removeEnemyAt(_index, enemy) {
+  const battle = session?.battle;
+  markEnemyRemoved(enemy);
+  if (battle) battle.enemiesNeedCompact = true;
+}
+
+function compactRemovedEnemies(battle = session?.battle) {
+  if (!battle?.enemiesNeedCompact) return;
+  battle.enemies = battle.enemies.filter((enemy) => enemy && !enemy.removed);
+  battle.enemiesNeedCompact = false;
+}
+
+function buildEnemySpatialGrid(battle) {
+  const cellSize = ENEMY_SPATIAL_CELL_SIZE;
+  const buckets = new Map();
+  for (let index = 0; index < battle.enemies.length; index += 1) {
+    const enemy = battle.enemies[index];
+    if (!enemy || enemy.removed) continue;
+    const cellX = Math.floor(enemy.x / cellSize);
+    const cellY = Math.floor(enemy.y / cellSize);
+    const key = `${cellX}:${cellY}`;
+    const bucket = buckets.get(key);
+    if (bucket) {
+      bucket.push(enemy);
+    } else {
+      buckets.set(key, [enemy]);
+    }
+  }
+  return { cellSize, buckets };
+}
+
+function getEnemySpatialCandidates(grid, x, y, radius) {
+  if (!grid?.buckets?.size) return [];
+  const cellSize = grid.cellSize || ENEMY_SPATIAL_CELL_SIZE;
+  const safeRadius = Math.max(1, Number(radius) || 1);
+  const minX = Math.floor((x - safeRadius) / cellSize);
+  const maxX = Math.floor((x + safeRadius) / cellSize);
+  const minY = Math.floor((y - safeRadius) / cellSize);
+  const maxY = Math.floor((y + safeRadius) / cellSize);
+  const candidates = [];
+  for (let cellY = minY; cellY <= maxY; cellY += 1) {
+    for (let cellX = minX; cellX <= maxX; cellX += 1) {
+      const bucket = grid.buckets.get(`${cellX}:${cellY}`);
+      if (bucket) candidates.push(...bucket);
+    }
+  }
+  return candidates;
+}
+
 function addExplosionEffect(x, y, radius, level = 1, damage = 0) {
   const battle = session?.battle;
   if (!battle || radius <= 0) return;
@@ -2539,7 +2649,7 @@ function addExplosionEffect(x, y, radius, level = 1, damage = 0) {
   }
 }
 
-function applyProjectileExplosion(projectile, sourceEnemyId) {
+function applyProjectileExplosion(projectile, sourceEnemyId, enemyGrid = null) {
   const battle = session.battle;
   const radius = Math.max(0, Number(projectile?.explosionRadius) || 0);
   const damageRatio = clamp(Number(projectile?.explosionDamageRatio) || 0, 0, 1);
@@ -2549,9 +2659,12 @@ function applyProjectileExplosion(projectile, sourceEnemyId) {
   const splashDamage = Math.max(1, Math.round((Number(projectile?.damage) || 0) * damageRatio));
   const explosionLevel = Math.max(1, Number(projectile?.explosionLevel) || 1);
   addExplosionEffect(impactX, impactY, radius, explosionLevel, splashDamage);
-  for (let index = battle.enemies.length - 1; index >= 0; index -= 1) {
-    const enemy = battle.enemies[index];
-    if (!enemy || enemy.id === sourceEnemyId) continue;
+  const candidates = enemyGrid
+    ? getEnemySpatialCandidates(enemyGrid, impactX, impactY, radius + 80)
+    : battle.enemies;
+  for (let index = candidates.length - 1; index >= 0; index -= 1) {
+    const enemy = candidates[index];
+    if (!enemy || enemy.removed || enemy.id === sourceEnemyId) continue;
     const maxDistance = radius + enemy.radius;
     const centerDistanceSq = distanceSq(impactX, impactY, enemy.x, enemy.y);
     if (centerDistanceSq > maxDistance * maxDistance) continue;
@@ -2565,7 +2678,7 @@ function applyProjectileExplosion(projectile, sourceEnemyId) {
     enemy.x += ((enemy.x - impactX) / vectorLength) * knockback;
     enemy.y += ((enemy.y - impactY) / vectorLength) * knockback;
     if (applyDamageToEnemy(enemy, explosionDamage, true)) {
-      battle.enemies.splice(index, 1);
+      removeEnemyAt(-1, enemy);
       addKillReward(enemy);
     }
   }
@@ -2579,7 +2692,7 @@ function triggerHullShockwave(touchEnemy, touchDamage) {
   const baseDamage = Math.max(5, Math.round((Number(touchDamage) || 0) * 0.18 + hullLevel * 2.4));
   for (let index = battle.enemies.length - 1; index >= 0; index -= 1) {
     const enemy = battle.enemies[index];
-    if (!enemy || enemy.id === touchEnemy?.id) continue;
+    if (!enemy || enemy.removed || enemy.id === touchEnemy?.id) continue;
     const maxDistance = radius + enemy.radius;
     const distSq = distanceSq(battle.ship.x, battle.ship.y, enemy.x, enemy.y);
     if (distSq > maxDistance * maxDistance) continue;
@@ -2593,7 +2706,7 @@ function triggerHullShockwave(touchEnemy, touchDamage) {
     enemy.x += (dx / vectorLength) * (18 + hullLevel * 4);
     enemy.y += (dy / vectorLength) * (18 + hullLevel * 4);
     if (applyDamageToEnemy(enemy, shockDamage)) {
-      battle.enemies.splice(index, 1);
+      removeEnemyAt(index, enemy);
       addKillReward(enemy);
     }
   }
@@ -2665,6 +2778,7 @@ function updateBattle(dtSec, nowMs) {
     }
   }
 
+  let enemyGrid = buildEnemySpatialGrid(battle);
   for (let index = battle.projectiles.length - 1; index >= 0; index -= 1) {
     const projectile = battle.projectiles[index];
     projectile.x += projectile.vx * worldDtSec;
@@ -2679,17 +2793,25 @@ function updateBattle(dtSec, nowMs) {
       continue;
     }
     let hit = false;
-    for (let enemyIndex = battle.enemies.length - 1; enemyIndex >= 0; enemyIndex -= 1) {
-      const enemy = battle.enemies[enemyIndex];
-      if (projectile.hitEnemyIds && projectile.hitEnemyIds.has(enemy.id)) continue;
+    let hitEnemy = null;
+    let hitEnemyDistanceSq = Number.POSITIVE_INFINITY;
+    const candidates = getEnemySpatialCandidates(enemyGrid, projectile.x, projectile.y, projectile.radius + 80);
+    for (let enemyIndex = 0; enemyIndex < candidates.length; enemyIndex += 1) {
+      const enemy = candidates[enemyIndex];
+      if (!enemy || enemy.removed || (projectile.hitEnemyIds && projectile.hitEnemyIds.has(enemy.id))) continue;
       const hitRadius = projectile.radius + enemy.radius;
-      if (distanceSq(projectile.x, projectile.y, enemy.x, enemy.y) > hitRadius * hitRadius) continue;
-      if (projectile.hitEnemyIds) projectile.hitEnemyIds.add(enemy.id);
-      const killed = applyDamageToEnemy(enemy, projectile.damage);
-      applyProjectileExplosion(projectile, enemy.id);
+      const projectileDistanceSq = distanceSq(projectile.x, projectile.y, enemy.x, enemy.y);
+      if (projectileDistanceSq > hitRadius * hitRadius || projectileDistanceSq >= hitEnemyDistanceSq) continue;
+      hitEnemy = enemy;
+      hitEnemyDistanceSq = projectileDistanceSq;
+    }
+    if (hitEnemy) {
+      if (projectile.hitEnemyIds) projectile.hitEnemyIds.add(hitEnemy.id);
+      const killed = applyDamageToEnemy(hitEnemy, projectile.damage);
+      applyProjectileExplosion(projectile, hitEnemy.id, enemyGrid);
       if (killed) {
-        battle.enemies.splice(enemyIndex, 1);
-        addKillReward(enemy);
+        removeEnemyAt(-1, hitEnemy);
+        addKillReward(hitEnemy);
       }
       if (projectile.remainingHits > 0) {
         projectile.remainingHits -= 1;
@@ -2697,10 +2819,10 @@ function updateBattle(dtSec, nowMs) {
       } else {
         hit = true;
       }
-      break;
     }
     if (hit) battle.projectiles.splice(index, 1);
   }
+  compactRemovedEnemies(battle);
 
   for (let index = battle.effects.length - 1; index >= 0; index -= 1) {
     const effect = battle.effects[index];
@@ -2712,6 +2834,7 @@ function updateBattle(dtSec, nowMs) {
 
   for (let index = battle.enemies.length - 1; index >= 0; index -= 1) {
     const enemy = battle.enemies[index];
+    if (!enemy || enemy.removed) continue;
     const shipDx = ship.x - enemy.x;
     const shipDy = ship.y - enemy.y;
     const shipDistanceSq = shipDx * shipDx + shipDy * shipDy;
@@ -2745,11 +2868,12 @@ function updateBattle(dtSec, nowMs) {
       Math.round(enemy.touchDamage * 3 * (1 - getShipDamageReductionRatio()))
     );
     ship.hp = Math.max(0, ship.hp - touchDamage);
-    battle.enemies.splice(index, 1);
+    removeEnemyAt(index, enemy);
     triggerHullShockwave(enemy, touchDamage);
     setBattleStatus(`거북선 피격 · HP -${touchDamage}`, 'danger');
     if (ship.hp <= 0) triggerShipRespawn(nowMs);
   }
+  compactRemovedEnemies(battle);
 
   refreshBattleHud(currentBattleIndex, { passive: true, nowMs });
 }
@@ -2994,9 +3118,68 @@ function drawEnemySilhouetteOutline(ctx, image, x, y, width, height, color, offs
   });
 }
 
-function drawEnemyVariantAura(ctx, enemy, width, height, style) {
+function getEnemyOutlineOffsets(offset) {
+  return [
+    [-offset, 0],
+    [offset, 0],
+    [0, -offset],
+    [0, offset],
+    [-offset * 0.72, -offset * 0.72],
+    [offset * 0.72, -offset * 0.72],
+    [-offset * 0.72, offset * 0.72],
+    [offset * 0.72, offset * 0.72]
+  ];
+}
+
+function drawCompositeOutline(ctx, image, color, x, y, width, height, offset) {
+  const silhouette = getEnemySilhouetteSprite(image, color);
+  if (!silhouette) return;
+  getEnemyOutlineOffsets(offset).forEach(([dx, dy]) => {
+    ctx.drawImage(silhouette, x + dx, y + dy, width, height);
+  });
+}
+
+function getCompositeEnemySprite(image, style) {
+  if (!image || !image.naturalWidth || !image.naturalHeight || !style) return null;
+  const keyParts = [
+    style.cacheKey || 'variant',
+    style.outline || '',
+    style.outerOutline || '',
+    ...(Array.isArray(style.tintLayers) ? style.tintLayers : [])
+  ];
+  const cacheKey = getEnemyVariantCacheKey(image, 'composite', keyParts.join('|'));
+  const cached = enemyVariantSpriteCache.get(cacheKey);
+  if (cached) return cached;
+
+  const width = image.naturalWidth;
+  const height = image.naturalHeight;
+  const pad = Math.ceil(Math.max(width, height) * 0.08);
+  const offscreen = document.createElement('canvas');
+  offscreen.width = width + pad * 2;
+  offscreen.height = height + pad * 2;
+  const offCtx = offscreen.getContext('2d');
+  if (!offCtx) return null;
+
+  if (style.outerOutline) {
+    drawCompositeOutline(offCtx, image, style.outerOutline, pad, pad, width, height, Math.max(1.5, width * 0.055));
+  }
+  if (style.outline) {
+    drawCompositeOutline(offCtx, image, style.outline, pad, pad, width, height, Math.max(1, width * 0.033));
+  }
+  offCtx.drawImage(getTintedEnemySprite(image, style), pad, pad, width, height);
+
+  const result = {
+    image: offscreen,
+    padX: pad / width,
+    padY: pad / height
+  };
+  enemyVariantSpriteCache.set(cacheKey, result);
+  return result;
+}
+
+function drawEnemyVariantAura(ctx, enemy, width, height, style, nowMs) {
   if (!style?.aura) return;
-  const pulse = (Math.sin(performance.now() * 0.008 + enemy.wobbleSeed) + 1) * 0.5;
+  const pulse = (Math.sin(nowMs * 0.008 + enemy.wobbleSeed) + 1) * 0.5;
   ctx.save();
   ctx.fillStyle = style.aura;
   ctx.beginPath();
@@ -3044,7 +3227,7 @@ function getEnemyBadge(enemy, variantStyle) {
   return { text: '', fill: '', stroke: '', color: '' };
 }
 
-function drawEnemy(ctx, enemy) {
+function drawEnemy(ctx, enemy, nowMs) {
   const image = enemyImages.get(enemy.tier);
   const variantStyle = getEnemyVariantVisual(enemy);
   const visualScale = getBattleVisualScale();
@@ -3057,7 +3240,7 @@ function drawEnemy(ctx, enemy) {
   const drawHeight = spriteSize?.height || enemy.renderSize * enemyDrawScale;
   const drawX = enemy.x - drawWidth / 2;
   const drawY = enemy.y - drawHeight / 2;
-  drawEnemyVariantAura(ctx, enemy, drawWidth, drawHeight, variantStyle);
+  drawEnemyVariantAura(ctx, enemy, drawWidth, drawHeight, variantStyle, nowMs);
 
   ctx.save();
   ctx.shadowColor = 'rgba(9, 24, 56, 0.24)';
@@ -3067,14 +3250,27 @@ function drawEnemy(ctx, enemy) {
     ctx.filter = `drop-shadow(0 0 ${(enemy.elite ? 16 : 11) * enemyDrawScale}px ${variantStyle.shadowColor})`;
   }
   if (image?.complete && image.naturalWidth) {
-    if (variantStyle?.outerOutline) {
-      drawEnemySilhouetteOutline(ctx, image, drawX, drawY, drawWidth, drawHeight, variantStyle.outerOutline, Math.max(1.5, drawWidth * 0.055));
+    const compositeSprite = variantStyle ? getCompositeEnemySprite(image, variantStyle) : null;
+    if (compositeSprite?.image) {
+      const padX = drawWidth * compositeSprite.padX;
+      const padY = drawHeight * compositeSprite.padY;
+      ctx.drawImage(
+        compositeSprite.image,
+        drawX - padX,
+        drawY - padY,
+        drawWidth + padX * 2,
+        drawHeight + padY * 2
+      );
+    } else {
+      if (variantStyle?.outerOutline) {
+        drawEnemySilhouetteOutline(ctx, image, drawX, drawY, drawWidth, drawHeight, variantStyle.outerOutline, Math.max(1.5, drawWidth * 0.055));
+      }
+      if (variantStyle?.outline) {
+        drawEnemySilhouetteOutline(ctx, image, drawX, drawY, drawWidth, drawHeight, variantStyle.outline, Math.max(1, drawWidth * 0.033));
+      }
+      const renderImage = variantStyle ? getTintedEnemySprite(image, variantStyle) : image;
+      ctx.drawImage(renderImage, drawX, drawY, drawWidth, drawHeight);
     }
-    if (variantStyle?.outline) {
-      drawEnemySilhouetteOutline(ctx, image, drawX, drawY, drawWidth, drawHeight, variantStyle.outline, Math.max(1, drawWidth * 0.033));
-    }
-    const renderImage = variantStyle ? getTintedEnemySprite(image, variantStyle) : image;
-    ctx.drawImage(renderImage, drawX, drawY, drawWidth, drawHeight);
   } else {
     ctx.fillStyle = variantStyle?.fallbackFill || '#be123c';
     ctx.strokeStyle = variantStyle?.outline || 'rgba(255,255,255,0.35)';
@@ -3165,11 +3361,20 @@ function drawExplosionEffect(ctx, effect, nowMs) {
   ctx.restore();
 }
 
-function drawBattleEffects(ctx, effects, nowMs) {
+function drawBattleEffects(ctx, effects, nowMs, width, height) {
   if (!Array.isArray(effects) || !effects.length) return;
   effects.forEach((effect) => {
+    if (!isDrawAreaVisible(effect?.x, effect?.y, effect?.radius, width, height, 12)) return;
     if (effect?.type === 'explosion') drawExplosionEffect(ctx, effect, nowMs);
   });
+}
+
+function isDrawAreaVisible(x, y, radius, width, height, margin = 0) {
+  const extent = Math.max(0, Number(radius) || 0) + Math.max(0, Number(margin) || 0);
+  return x + extent >= 0
+    && x - extent <= width
+    && y + extent >= 0
+    && y - extent <= height;
 }
 
 function drawBattle() {
@@ -3185,10 +3390,20 @@ function drawBattle() {
 
   drawShip(ctx, battle.ship, nowMs);
 
-  battle.enemies.forEach((enemy) => drawEnemy(ctx, enemy));
+  const visualScale = getBattleVisualScale(battle);
+  for (let index = 0; index < battle.enemies.length; index += 1) {
+    const enemy = battle.enemies[index];
+    if (!enemy || enemy.removed) continue;
+    const drawRadius = Math.max(enemy.radius, enemy.renderSize * visualScale * 0.68);
+    if (isDrawAreaVisible(enemy.x, enemy.y, drawRadius, width, height, 34)) {
+      drawEnemy(ctx, enemy, nowMs);
+    }
+  }
 
   ctx.save();
-  battle.projectiles.forEach((projectile) => {
+  for (let index = 0; index < battle.projectiles.length; index += 1) {
+    const projectile = battle.projectiles[index];
+    if (!isDrawAreaVisible(projectile.x, projectile.y, projectile.radius, width, height, 8)) continue;
     const hasExplosion = projectile.explosionRadius > 0;
     ctx.fillStyle = hasExplosion ? '#fb923c' : '#f9e27d';
     ctx.strokeStyle = hasExplosion ? 'rgba(124,45,18,0.68)' : 'rgba(120,53,15,0.55)';
@@ -3197,10 +3412,10 @@ function drawBattle() {
     ctx.arc(projectile.x, projectile.y, projectile.radius, 0, Math.PI * 2);
     ctx.fill();
     ctx.stroke();
-  });
+  }
   ctx.restore();
 
-  drawBattleEffects(ctx, battle.effects, nowMs);
+  drawBattleEffects(ctx, battle.effects, nowMs, width, height);
 
   if (!isTabletFaceToFaceSession()) {
     drawShipHpGauge(ctx, battle.ship, width);
@@ -3321,6 +3536,8 @@ async function startSelectedGame() {
   setStartLoading(true, '퀴즈 데이터를 불러오는 중', 0.04);
   try {
     const questions = await prepareGameStart();
+    setStartLoading(true, '적 출현 순서를 미리 준비하는 중', 0.98);
+    await nextPaint();
     session = buildSession(questions);
     currentBattleIndex = 0;
     nextQuestion();
@@ -3676,7 +3893,7 @@ window.__KNOLQUIZ_TEST__ = {
     return {
       playerIndex: battle.playerIndex,
       gold: battle.score.gold,
-      enemies: battle.enemies.map((enemy) => ({
+      enemies: battle.enemies.filter((enemy) => enemy && !enemy.removed).map((enemy) => ({
         id: enemy.id,
         hp: Math.round(enemy.hp),
         x: Math.round(enemy.x),
