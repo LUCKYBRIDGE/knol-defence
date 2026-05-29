@@ -1932,15 +1932,19 @@ select {
   font-weight: 900;
 }
 
-.upgrade-button:not(:disabled):hover,
-.upgrade-button:not(:disabled):focus-visible {
+.upgrade-button:not(.is-disabled):hover,
+.upgrade-button:not(.is-disabled):focus-visible {
   border-color: var(--primary);
   background: linear-gradient(180deg, #ffffff, #dff7f3);
 }
 
-.upgrade-button:disabled {
-  cursor: not-allowed;
+.upgrade-button:disabled,
+.upgrade-button.is-disabled {
   opacity: 0.48;
+}
+
+.upgrade-button.is-disabled {
+  cursor: pointer;
 }
 
 .jumpmap-world,
@@ -5048,5 +5052,61 @@ body[data-screen="play"][data-tablet-face="true"] .play-topline .timer-pill {
     min-height: 30px;
     padding-inline: 8px;
     font-size: 10px;
+  }
+}
+
+@media (max-height: 900px) {
+  body[data-screen="play"][data-tablet-face="true"] .battle-panel-tablet {
+    grid-template-rows:
+      clamp(96px, 14dvh, 116px)
+      minmax(0, 1fr)
+      clamp(96px, 14dvh, 116px);
+  }
+
+  body[data-screen="play"][data-tablet-face="true"] .battle-panel-tablet .tablet-player-zone {
+    grid-template-rows: 30px minmax(0, 1fr);
+  }
+
+  body[data-screen="play"][data-tablet-face="true"] .battle-panel-tablet .tablet-team-hud {
+    height: 30px;
+  }
+
+  body[data-screen="play"][data-tablet-face="true"] .battle-panel-tablet .tablet-player-control-card {
+    grid-template-columns: minmax(42px, 0.13fr) minmax(70px, 0.18fr) minmax(0, 1fr);
+    gap: 5px;
+  }
+
+  body[data-screen="play"][data-tablet-face="true"] .battle-panel-tablet .tablet-quiz-button {
+    height: 30px;
+    min-height: 30px;
+  }
+
+  body[data-screen="play"][data-tablet-face="true"] .battle-panel-tablet .tablet-upgrade-grid .upgrade-button {
+    height: 30px;
+    min-height: 30px;
+    padding: 3px 4px;
+  }
+}
+
+@media (max-height: 700px) {
+  body[data-screen="play"][data-tablet-face="true"] .battle-panel-tablet {
+    grid-template-rows:
+      clamp(88px, 16dvh, 104px)
+      minmax(0, 1fr)
+      clamp(88px, 16dvh, 104px);
+  }
+
+  body[data-screen="play"][data-tablet-face="true"] .battle-panel-tablet .tablet-player-zone {
+    grid-template-rows: 26px minmax(0, 1fr);
+  }
+
+  body[data-screen="play"][data-tablet-face="true"] .battle-panel-tablet .tablet-team-hud {
+    height: 26px;
+  }
+
+  body[data-screen="play"][data-tablet-face="true"] .battle-panel-tablet .tablet-quiz-button,
+  body[data-screen="play"][data-tablet-face="true"] .battle-panel-tablet .tablet-upgrade-grid .upgrade-button {
+    height: 27px;
+    min-height: 27px;
   }
 }

@@ -267,6 +267,8 @@ let battleCtx = null;
 let battleViews = [];
 let currentBattleIndex = 0;
 let battleAnimationId = 0;
+let lastPointerActionButton = null;
+let lastPointerActionAtMs = 0;
 
 function escapeHtml(value) {
   return String(value ?? '')
@@ -1615,7 +1617,9 @@ function setUpgradeButton(button, disabled, title, meta, cost) {
   const compact = Boolean(button.closest('.battle-panel-tablet'));
   const detail = compact ? cost : `${meta} · ${cost}`;
   const nextDisabled = Boolean(disabled);
-  if (button.disabled !== nextDisabled) button.disabled = nextDisabled;
+  if (button.disabled) button.disabled = false;
+  button.classList.toggle('is-disabled', nextDisabled);
+  button.setAttribute('aria-disabled', String(nextDisabled));
   const ariaLabel = `${title} ${meta} ${cost}`;
   if (button.getAttribute('aria-label') !== ariaLabel) {
     button.setAttribute('aria-label', ariaLabel);
@@ -1785,6 +1789,37 @@ function refreshAllBattleHuds() {
   setBattleContext(previousIndex);
 }
 
+function runBattleActionFromButton(button) {
+  if (!button || !session) return false;
+  const action = button.dataset.action;
+  if (!action || (action === 'quiz' && button.disabled)) return false;
+  const battleIndex = getPlayerIndexFromElement(button);
+  setBattleContext(battleIndex);
+  session.activePlayerIndex = battleIndex;
+  const battle = session.battle;
+  const ship = battle.ship;
+  if (action === 'quiz') {
+    openQuizModal(battleIndex);
+    return true;
+  }
+  if (action === 'heal') {
+    const cost = getHealCost();
+    if (battle.score.gold < cost || ship.hp >= ship.maxHp || isShipRespawning()) {
+      refreshBattleHud(battleIndex);
+      return false;
+    }
+    battle.score.gold -= cost;
+    ship.goldSpent += cost;
+    ship.hp = clamp(ship.hp + 44, 0, ship.maxHp);
+    setBattleStatus(`체력 회복 +44 (GOLD -${cost})`, 'success');
+  } else if (!runShipUpgrade(action)) {
+    refreshBattleHud(battleIndex);
+    return false;
+  }
+  refreshBattleHud(battleIndex);
+  return true;
+}
+
 function handleBattleAction(event) {
   const quizControl = event.target.closest('[data-choice], [data-quiz-close]');
   if (quizControl && session) {
@@ -1800,28 +1835,9 @@ function handleBattleAction(event) {
   }
 
   const button = event.target.closest('[data-action]');
-  if (!button || !session || button.disabled) return;
-  const battleIndex = getPlayerIndexFromElement(button);
-  setBattleContext(battleIndex);
-  session.activePlayerIndex = battleIndex;
-  const action = button.dataset.action;
-  const battle = session.battle;
-  const ship = battle.ship;
-  if (action === 'quiz') {
-    openQuizModal(battleIndex);
-    return;
-  }
-  if (action === 'heal') {
-    const cost = getHealCost();
-    if (battle.score.gold < cost || ship.hp >= ship.maxHp || isShipRespawning()) return;
-    battle.score.gold -= cost;
-    ship.goldSpent += cost;
-    ship.hp = clamp(ship.hp + 44, 0, ship.maxHp);
-    setBattleStatus(`체력 회복 +44 (GOLD -${cost})`, 'success');
-  } else {
-    runShipUpgrade(action);
-  }
-  refreshBattleHud(battleIndex);
+  if (!button || !session) return;
+  if (button === lastPointerActionButton && performance.now() - lastPointerActionAtMs < 650) return;
+  runBattleActionFromButton(button);
 }
 
 function handleBattlePointerDown(event) {
@@ -1839,12 +1855,14 @@ function handleBattlePointerDown(event) {
     return;
   }
 
-  const button = event.target.closest('[data-action="quiz"]');
-  if (!button || !session || button.disabled) return;
+  const button = event.target.closest('[data-action]');
+  if (!button || !session || (button.dataset.action === 'quiz' && button.disabled)) return;
   if (event.pointerType === 'mouse' && event.button !== 0) return;
   event.preventDefault();
-  const battleIndex = getPlayerIndexFromElement(button);
-  openQuizModal(battleIndex);
+  event.stopPropagation();
+  runBattleActionFromButton(button);
+  lastPointerActionButton = button;
+  lastPointerActionAtMs = performance.now();
 }
 
 function runShipUpgrade(action) {
@@ -1858,8 +1876,10 @@ function runShipUpgrade(action) {
     explosion: getExplosionUpgradeCost,
     hull: getHullUpgradeCost
   };
-  const cost = costMap[action]?.() || 0;
-  if (battle.score.gold < cost) return;
+  const getCost = costMap[action];
+  if (!getCost) return false;
+  const cost = getCost();
+  if (battle.score.gold < cost) return false;
   battle.score.gold -= cost;
   ship.goldSpent += cost;
 
@@ -1887,6 +1907,7 @@ function runShipUpgrade(action) {
     ship.hp = Math.min(ship.maxHp, ship.hp + Math.round(hpGain * 0.75));
     setBattleStatus(`선체 강화 · 최대 HP +${hpGain}`, 'success');
   }
+  return true;
 }
 
 function renderChoiceButton(choice, index, question, battle, playerIndex = currentBattleIndex) {
