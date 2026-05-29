@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>놀퀴즈 거북선 디펜스</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body class="theme-turtle" data-screen="setup">
+    <div class="app-shell">
+      <button class="display-mode-toggle" type="button" id="display-mode-toggle" aria-label="화면 모드 전환">화면 자동</button>
+      <header class="topbar">
+        <div class="brand-block">
+          <span class="brand-kicker">놀퀴즈 게임</span>
+          <h1>거북선 디펜스</h1>
+        </div>
+      </header>
+
+      <main class="screen-stack">
+        <section class="screen setup-screen" id="setup-screen" aria-label="게임 시작 설정">
+          <div class="setup-grid">
+            <section class="showcase-card turtle-showcase" aria-label="거북선 전투 미리보기">
+              <div class="sea-battle">
+                <img class="quiz-float quiz-float-a" src="./assets/quiz/nets/cube-01.svg" alt="" />
+                <img class="quiz-float quiz-float-b" src="./assets/quiz/nets/facecolor/cube-01-facecolor-01-01.svg" alt="" />
+                <img class="battle-ship" src="./assets/battleship/battleship-ship.png" alt="" />
+                <img class="battle-enemy enemy-a" src="./assets/battleship/battleship-04eoduksini.png" alt="" />
+                <img class="battle-enemy enemy-b" src="./assets/battleship/battleship-08bulgasari.png" alt="" />
+                <img class="battle-enemy enemy-c" src="./assets/battleship/battleship-10imugi.png" alt="" />
+              </div>
+              <div class="showcase-strip">
+                <span>자동 포격</span>
+                <span>퀴즈 보상</span>
+                <span>선체 강화</span>
+              </div>
+              <div class="tablet-promo" aria-label="태블릿 상하반전 2인 모드 안내">
+                <div>
+                  <span>태블릿 추천</span>
+                  <b>한 기기를 사이에 두고 함께 방어하세요</b>
+                  <p>거북선 전장은 중앙에, 두 플레이어의 퀴즈와 강화 버튼은 위아래로 마주 보게 배치됩니다.</p>
+                </div>
+                <button class="ghost-action" type="button" id="tablet-promo-button">태블릿 2인으로 설정</button>
+              </div>
+            </section>
+
+            <section class="settings-card" aria-label="게임 시작 설정">
+              <div class="setup-select-row">
+                <div class="field-block">
+                  <label for="quiz-pack">퀴즈팩 선택</label>
+                  <select id="quiz-pack"></select>
+                </div>
+
+                <div class="field-block">
+                  <label for="play-minutes">퀴즈 시간</label>
+                  <select id="play-minutes"></select>
+                </div>
+              </div>
+
+              <div class="field-block">
+                <div class="field-label">플레이 방식</div>
+                <div class="segmented" id="mode-options" role="group" aria-label="플레이 방식"></div>
+              </div>
+
+              <div class="field-block">
+                <div class="field-label">퀴즈 인원수</div>
+                <div class="segmented" id="player-options" role="group" aria-label="플레이 인원수"></div>
+              </div>
+
+              <div class="setup-actions">
+                <button class="primary-action" type="button" id="start-button" disabled>게임 시작</button>
+                <div class="error-text" id="setup-error" role="alert"></div>
+              </div>
+            </section>
+          </div>
+        </section>
+
+        <section class="screen play-screen is-hidden" id="play-screen" aria-live="polite">
+          <div class="play-topline">
+            <button class="ghost-action" type="button" id="exit-button">전투 중단</button>
+            <div class="play-title" id="play-title">거북선 디펜스</div>
+            <div class="timer-pill" id="timer-pill">00:00</div>
+          </div>
+
+          <div class="play-layout">
+            <section class="game-stage" id="game-stage" aria-label="거북선 디펜스 게임 화면"></section>
+          </div>
+          <section class="question-area quiz-modal is-hidden" id="question-area" aria-label="문제와 선택지" aria-modal="true"></section>
+        </section>
+
+        <section class="screen result-screen is-hidden" id="result-screen" aria-labelledby="result-title" aria-modal="true" role="dialog">
+          <div class="result-modal">
+            <div class="result-header">
+              <div>
+                <span class="screen-kicker">Result</span>
+                <h2 id="result-title">거북선 디펜스 결과</h2>
+                <p id="result-subtitle">전투 결과</p>
+              </div>
+              <div class="result-status-badge" id="result-time-pill">결과 확정</div>
+            </div>
+            <div class="result-grid" id="result-grid"></div>
+            <div class="player-results" id="player-results"></div>
+            <div class="result-actions">
+              <button class="primary-action" type="button" id="restart-same-button">같은 설정으로 다시 시작</button>
+              <button class="ghost-action" type="button" id="back-setup-button">메인화면</button>
+            </div>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <script src="./assets/quiz/data/inline-packs.js"></script>
+    <script src="./app.js"></script>
+  </body>
+</html>

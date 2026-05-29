@@ -1,0 +1,3299 @@
+const $ = (selector, root = document) => root.querySelector(selector);
+const $$ = (selector, root = document) => Array.from(root.querySelectorAll(selector));
+
+const PLAYER_COUNTS = [1, 2, 3, 4];
+const PLAY_MINUTES = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+const PLAY_MODES = Object.freeze([
+  { id: 'solo', label: '각자 풀기' },
+  { id: 'coop', label: '함께 풀기' }
+]);
+const DISPLAY_MODES = Object.freeze([
+  { id: 'auto', label: '자동' },
+  { id: 'mobile', label: '모바일' },
+  { id: 'tablet', label: '태블릿' },
+  { id: 'board', label: '전자칠판' },
+  { id: 'web', label: '웹' }
+]);
+const DISPLAY_MODE_PLAYER_LIMITS = Object.freeze({
+  mobile: 1,
+  tablet: 2,
+  board: 4,
+  web: 4
+});
+const RESOLUTION_PLAYER_LIMITS = Object.freeze([
+  { limit: 1, maxWidth: 699, maxHeight: 619, maxArea: 360000 },
+  { limit: 2, maxWidth: 979, maxHeight: 699, maxArea: 700000 },
+  { limit: 3, maxWidth: 1199, maxHeight: 699, maxArea: 900000 }
+]);
+const UPGRADE_ACTIONS = ['heal', 'speed', 'power', 'projectile', 'penetration', 'explosion', 'hull'];
+
+const QUIZ_PACKS = [
+  {
+    id: 'gugudan',
+    label: '구구단',
+    kind: 'csv',
+    path: './assets/quiz/data/gugudan-2to9.csv'
+  },
+  {
+    id: 'facecolor',
+    label: '전개도: 평행한 면',
+    kind: 'json',
+    path: './assets/quiz/data/facecolor-questions.json'
+  },
+  {
+    id: 'edgecolor',
+    label: '전개도: 맞물리는 모서리',
+    kind: 'json',
+    path: './assets/quiz/data/edgecolor-questions.json'
+  },
+  {
+    id: 'validity',
+    label: '전개도: 올바른 전개도',
+    kind: 'json',
+    path: './assets/quiz/data/validity-questions.json'
+  }
+];
+
+const ENEMY_DEFINITIONS = Object.freeze([
+  { tier: 1, code: '01', name: '도깨비불', file: 'battleship-01ddokaebibul.png', baseHp: 24, baseSpeed: 58, baseTouchDamage: 8, baseSize: 56 },
+  { tier: 2, code: '02', name: '물귀신', file: 'battleship-02mulguisin.png', baseHp: 32, baseSpeed: 62, baseTouchDamage: 9, baseSize: 58 },
+  { tier: 3, code: '03', name: '창귀', file: 'battleship-03chang-gwi.png', baseHp: 40, baseSpeed: 65, baseTouchDamage: 10, baseSize: 60 },
+  { tier: 4, code: '04', name: '어둑시니', file: 'battleship-04eoduksini.png', baseHp: 52, baseSpeed: 68, baseTouchDamage: 11, baseSize: 62 },
+  { tier: 5, code: '05', name: '영노', file: 'battleship-05yeongno.png', baseHp: 64, baseSpeed: 71, baseTouchDamage: 13, baseSize: 64 },
+  { tier: 6, code: '06', name: '묘두사', file: 'battleship-06myodusa.png', baseHp: 78, baseSpeed: 74, baseTouchDamage: 14, baseSize: 66 },
+  { tier: 7, code: '07', name: '그슨대', file: 'battleship-07geuseundae.png', baseHp: 92, baseSpeed: 78, baseTouchDamage: 16, baseSize: 68 },
+  { tier: 8, code: '08', name: '불가사리', file: 'battleship-08bulgasari.png', baseHp: 108, baseSpeed: 82, baseTouchDamage: 18, baseSize: 70 },
+  { tier: 9, code: '09', name: '두억시니', file: 'battleship-09dueoksini.png', baseHp: 126, baseSpeed: 86, baseTouchDamage: 20, baseSize: 72 },
+  { tier: 10, code: '10', name: '이무기', file: 'battleship-10imugi.png', baseHp: 146, baseSpeed: 90, baseTouchDamage: 23, baseSize: 74 }
+]);
+
+const ENEMY_ROLE_CONFIG = Object.freeze({
+  1: Object.freeze({ role: 'swarm', label: '무리형' }),
+  2: Object.freeze({ role: 'haste-support', label: '속도형' }),
+  3: Object.freeze({ role: 'charger', label: '돌진형' }),
+  4: Object.freeze({ role: 'shield-support', label: '보호형' }),
+  5: Object.freeze({ role: 'armored', label: '장갑형' }),
+  6: Object.freeze({ role: 'splitter', label: '분열형' }),
+  7: Object.freeze({ role: 'healer', label: '회복형' }),
+  8: Object.freeze({ role: 'adaptive', label: '적응형' }),
+  9: Object.freeze({ role: 'commander', label: '지휘형' }),
+  10: Object.freeze({ role: 'summoner', label: '소환형' })
+});
+
+const ENEMY_STRENGTH_VARIANTS = Object.freeze({
+  hardened: Object.freeze({
+    label: '강화',
+    hpMulBase: 1.55,
+    hpMulTierStep: 0.03,
+    speedMul: 0.92,
+    touchMulBase: 1.52,
+    touchMulTierStep: 0.03,
+    visual: Object.freeze({
+      label: '강화',
+      hpColor: '#f59e0b',
+      fill: 'rgba(146, 64, 14, 0.92)',
+      stroke: 'rgba(254, 240, 138, 0.62)',
+      color: '#fef3c7',
+      tintLayers: Object.freeze(['rgba(255, 160, 30, 0.36)', 'rgba(92, 48, 0, 0.14)']),
+      outline: 'rgba(255, 230, 132, 0.86)',
+      outerOutline: 'rgba(146, 64, 14, 0.68)',
+      aura: 'rgba(255, 184, 82, 0.22)',
+      shadowColor: 'rgba(255, 184, 82, 0.52)',
+      fallbackFill: '#d97706'
+    })
+  }),
+  elite: Object.freeze({
+    label: '특수',
+    hpMulBase: 1.9,
+    hpMulTierStep: 0.12,
+    hpTier10MulBase: 1.08,
+    hpTier10MulStep: 0.1,
+    speedMulBase: 1.14,
+    speedMulTierStep: 0.03,
+    speedTier10MulBase: 1.02,
+    speedTier10MulStep: 0.03,
+    touchMulBase: 1.45,
+    touchMulTierStep: 0.1,
+    touchTier10MulBase: 1.08,
+    touchTier10MulStep: 0.11,
+    renderSizeAdd: 8,
+    renderSizeMulBase: 1.12,
+    renderSizeMulTierStep: 0.03,
+    visual: Object.freeze({
+      label: '특수',
+      hpColor: '#dc2626',
+      fill: 'rgba(127, 29, 29, 0.94)',
+      stroke: 'rgba(254, 202, 202, 0.66)',
+      color: '#fee2e2',
+      tintLayers: Object.freeze(['rgba(255, 30, 30, 0.6)']),
+      outline: 'rgba(254, 202, 202, 0.9)',
+      outerOutline: 'rgba(127, 29, 29, 0.78)',
+      aura: 'rgba(255, 66, 66, 0.26)',
+      shadowColor: 'rgba(255, 66, 66, 0.62)',
+      fallbackFill: '#dc2626',
+      max: Object.freeze({
+        tintLayers: Object.freeze(['rgba(255, 24, 24, 0.74)', 'rgba(85, 0, 0, 0.34)']),
+        outline: 'rgba(255, 236, 153, 0.95)',
+        outerOutline: 'rgba(95, 0, 0, 0.84)',
+        aura: 'rgba(95, 0, 0, 0.34)',
+        shadowColor: 'rgba(122, 0, 0, 0.66)'
+      })
+    })
+  })
+});
+
+const SHIP_SRC = './assets/battleship/battleship-ship.png';
+const ENEMY_ASSET_BASE = './assets/battleship/';
+const SHIP_SPRITE_CROP = Object.freeze({ x: 354, y: 43, width: 316, height: 482 });
+
+const ELITE_UNLOCK_TIME_SEC = 180;
+const ENEMY_TIER_UNLOCK_STEP_SEC = 18;
+const ELITE_TIER_UNLOCK_STEP_SEC = 24;
+const SPAWN_START_COOLDOWN_MS = 1700;
+const SPAWN_MIN_COOLDOWN_MS = 460;
+const SPAWN_DECAY_PER_SEC = 5.6;
+const HP_GROWTH_STEP_SEC = 24;
+const HP_GROWTH_PER_STEP = 0.12;
+const SPEED_GROWTH_STEP_SEC = 34;
+const SPEED_GROWTH_PER_STEP = 0.09;
+const TOUCH_GROWTH_STEP_SEC = 40;
+const TOUCH_GROWTH_PER_STEP = 0.09;
+const SIZE_GROWTH_STEP_SEC = 75;
+const FLOW_CYCLE_SEC = 54;
+const FLOW_LULL_START_SEC = 10;
+const FLOW_LULL_END_SEC = 20;
+const FLOW_SURGE_START_SEC = 32;
+const FLOW_SURGE_END_SEC = 40;
+const FLOW_AFTERSHOCK_END_SEC = 46;
+const EARLY_ONE_SHOT_WINDOW_SEC = 55;
+const EARLY_EASE_WINDOW_SEC = 120;
+const EARLY_SOFTCAP_T1 = 9;
+const EARLY_SOFTCAP_T2 = 14;
+const EARLY_SOFTCAP_T3 = 21;
+const BATTLE_QUIZ_WORLD_SLOW_RATIO = 0.35;
+const SHIP_BASE_MAX_HP = 300;
+const SHIP_BASE_ATTACK_POWER = 14;
+const SHIP_BASE_ATTACK_COOLDOWN_MS = 620;
+const SHIP_ATTACK_SPEED_LEVEL_STEP = 0.1;
+const SHIP_ATTACK_POWER_LEVEL_STEP = 0.16;
+const SHIP_HULL_HP_STEP = 46;
+const SHIP_HULL_DAMAGE_REDUCTION_STEP = 0.055;
+const SHIP_DAMAGE_REDUCTION_MAX = 0.4;
+const BATTLESHIP_RESPAWN_DELAY_MS = 3200;
+const BATTLESHIP_RESPAWN_INVULN_MS = 1200;
+const EARLY_ATTACK_SLOW_WINDOW_SEC = 70;
+const EARLY_ATTACK_SLOW_MAX_RATIO = 1.22;
+const QUIZ_SCORE_BASE = 120;
+const QUIZ_SCORE_DIFFICULTY_STEP = 35;
+const QUIZ_COMBO_SCORE_STEP = 0.06;
+const QUIZ_COMBO_SCORE_MAX = 0.72;
+const QUIZ_BURST_QUESTION_COUNT = 3;
+const QUIZ_AUTO_NEXT_DELAY_MS = 760;
+const QUIZ_AUTO_CLOSE_DELAY_MS = 920;
+const KILL_SCORE_BASE = 25;
+const KILL_SCORE_TIER_STEP = 14;
+const KILL_SCORE_COMBO_STEP = 0.015;
+const KILL_SCORE_COMBO_MAX = 0.36;
+
+const elements = {
+  setupScreen: $('#setup-screen'),
+  playScreen: $('#play-screen'),
+  resultScreen: $('#result-screen'),
+  quizPack: $('#quiz-pack'),
+  playMinutes: $('#play-minutes'),
+  modeOptions: $('#mode-options'),
+  displayModeToggle: $('#display-mode-toggle'),
+  playerOptions: $('#player-options'),
+  startButton: $('#start-button'),
+  setupError: $('#setup-error'),
+  tabletPromoButton: $('#tablet-promo-button'),
+  exitButton: $('#exit-button'),
+  playTitle: $('#play-title'),
+  timerPill: $('#timer-pill'),
+  gameStage: $('#game-stage'),
+  questionArea: $('#question-area'),
+  resultTitle: $('#result-title'),
+  resultSubtitle: $('#result-subtitle'),
+  resultTimePill: $('#result-time-pill'),
+  resultGrid: $('#result-grid'),
+  playerResults: $('#player-results'),
+  restartSameButton: $('#restart-same-button'),
+  backSetupButton: $('#back-setup-button')
+};
+
+const packCache = new Map();
+const enemyImages = new Map();
+const enemyVariantSpriteCache = new Map();
+const shipImage = new Image();
+shipImage.src = SHIP_SRC;
+ENEMY_DEFINITIONS.forEach((def) => {
+  const image = new Image();
+  image.src = `${ENEMY_ASSET_BASE}${def.file}`;
+  enemyImages.set(def.tier, image);
+});
+
+let selectedPackId = 'gugudan';
+let selectedMode = 'solo';
+let selectedDisplayMode = 'auto';
+let selectedPlayers = 1;
+let selectedMinutes = 3;
+let setupMessageKind = '';
+let session = null;
+let battleCanvas = null;
+let battleCtx = null;
+let battleViews = [];
+let currentBattleIndex = 0;
+let battleAnimationId = 0;
+
+function escapeHtml(value) {
+  return String(value ?? '')
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#039;');
+}
+
+function shuffle(list) {
+  const result = list.slice();
+  for (let index = result.length - 1; index > 0; index -= 1) {
+    const swapIndex = Math.floor(Math.random() * (index + 1));
+    [result[index], result[swapIndex]] = [result[swapIndex], result[index]];
+  }
+  return result;
+}
+
+function hashSeed(value) {
+  let hash = 2166136261;
+  const text = String(value ?? '');
+  for (let index = 0; index < text.length; index += 1) {
+    hash ^= text.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return hash >>> 0;
+}
+
+function createSeededRandom(seed) {
+  let state = (Number(seed) >>> 0) || 0x6d2b79f5;
+  return () => {
+    state = (state + 0x6d2b79f5) >>> 0;
+    let next = state;
+    next = Math.imul(next ^ (next >>> 15), next | 1);
+    next ^= next + Math.imul(next ^ (next >>> 7), next | 61);
+    return ((next ^ (next >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+function createBattleRandomState(sessionSeed) {
+  return {
+    spawn: createSeededRandom(hashSeed(`${sessionSeed}:balanced-spawn`))
+  };
+}
+
+function battleRandom(channel = 'spawn') {
+  const generator = session?.battle?.random?.[channel] || session?.battle?.random?.spawn;
+  return typeof generator === 'function' ? generator() : Math.random();
+}
+
+function clamp(value, min, max) {
+  return Math.max(min, Math.min(max, value));
+}
+
+function distance(ax, ay, bx, by) {
+  return Math.hypot(ax - bx, ay - by);
+}
+
+function formatClock(totalSeconds) {
+  const safe = Math.max(0, Math.ceil(totalSeconds));
+  const minutes = Math.floor(safe / 60);
+  const seconds = safe % 60;
+  return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+}
+
+function formatAccuracy(correct, attempts) {
+  const safeCorrect = Math.max(0, Number(correct) || 0);
+  const safeAttempts = Math.max(0, Number(attempts) || 0);
+  const accuracy = safeAttempts > 0 ? Math.round((safeCorrect / safeAttempts) * 100) : 0;
+  return `${accuracy}% (${safeCorrect}/${safeAttempts})`;
+}
+
+function isQuizImageAsset(value) {
+  return /\.(svg|png|jpe?g|webp|gif)$/i.test(String(value || '').trim());
+}
+
+function toQuizImageSrc(value) {
+  return `./assets/quiz/nets/${String(value || '').trim()}`;
+}
+
+function isChoiceOnlyImageQuestion(question) {
+  const type = String(question?.type || '').trim().toLowerCase();
+  const tags = Array.isArray(question?.tags) ? question.tags.map((tag) => String(tag).toLowerCase()) : [];
+  const prompt = String(question?.prompt || '');
+  return type === 'validity'
+    || tags.includes('validity')
+    || prompt.includes('올바른 전개도')
+    || prompt.includes('올바르지 않은 전개도');
+}
+
+function showScreen(name) {
+  document.body.dataset.screen = name;
+  elements.setupScreen.classList.toggle('is-hidden', name !== 'setup');
+  elements.playScreen.classList.toggle('is-hidden', name !== 'play');
+  elements.resultScreen.classList.toggle('is-hidden', name !== 'result');
+}
+
+function getPackLabel(packId) {
+  return QUIZ_PACKS.find((pack) => pack.id === packId)?.label || '퀴즈팩';
+}
+
+function getModeLabel(modeId = selectedMode, options = {}) {
+  const resolvedMode = options.resolvedMode || session?.displayMode || getResolvedDisplayMode();
+  const playerCount = options.playerCount || session?.players?.length || selectedPlayers;
+  if (modeId === 'coop' && resolvedMode === 'tablet' && playerCount === 2) {
+    return '함께 2명(마주보기)';
+  }
+  return PLAY_MODES.find((mode) => mode.id === modeId)?.label || '각자 풀기';
+}
+
+function getPlayerCountLabel(count, resolvedMode = getResolvedDisplayMode()) {
+  if (resolvedMode === 'tablet' && count === 2) return '함께 2명(마주보기)';
+  return `${count}명`;
+}
+
+function detectDisplayMode() {
+  const width = Math.max(0, window.innerWidth || document.documentElement.clientWidth || 0);
+  const height = Math.max(0, window.innerHeight || document.documentElement.clientHeight || 0);
+  const minSide = Math.min(width, height);
+  const maxSide = Math.max(width, height);
+  const hasTouch = Boolean(
+    navigator.maxTouchPoints > 0
+    || window.matchMedia?.('(pointer: coarse)')?.matches
+  );
+  if (minSide <= 520 || width <= 700) return 'mobile';
+  if (minSide >= 900 && maxSide >= 1600) return 'board';
+  if ((hasTouch && minSide >= 600 && maxSide <= 1500) || (minSide >= 700 && maxSide <= 1180)) {
+    return 'tablet';
+  }
+  return 'web';
+}
+
+function getResolvedDisplayMode(displayModeId = selectedDisplayMode) {
+  return displayModeId === 'auto' ? detectDisplayMode() : displayModeId;
+}
+
+function getDisplayModeLabel(displayModeId = selectedDisplayMode, resolvedMode = getResolvedDisplayMode(displayModeId)) {
+  const baseLabel = DISPLAY_MODES.find((mode) => mode.id === displayModeId)?.label || '자동';
+  if (displayModeId !== 'auto') return baseLabel;
+  const resolvedLabel = DISPLAY_MODES.find((mode) => mode.id === resolvedMode)?.label || '웹';
+  return `${baseLabel}:${resolvedLabel}`;
+}
+
+function getDisplayModeButtonLabel(displayModeId = selectedDisplayMode, resolvedMode = getResolvedDisplayMode(displayModeId)) {
+  const resolvedLabel = DISPLAY_MODES.find((mode) => mode.id === resolvedMode)?.label || '웹';
+  if (displayModeId === 'auto') return `화면 자동:${resolvedLabel}`;
+  return `화면 ${resolvedLabel}`;
+}
+
+function getViewportMetrics() {
+  const width = Math.max(0, window.innerWidth || document.documentElement.clientWidth || 0);
+  const height = Math.max(0, window.innerHeight || document.documentElement.clientHeight || 0);
+  return {
+    width,
+    height,
+    minSide: Math.min(width, height),
+    maxSide: Math.max(width, height),
+    area: width * height
+  };
+}
+
+function selectNextDisplayMode() {
+  const index = DISPLAY_MODES.findIndex((mode) => mode.id === selectedDisplayMode);
+  selectedDisplayMode = DISPLAY_MODES[(index + 1 + DISPLAY_MODES.length) % DISPLAY_MODES.length]?.id || 'auto';
+  updateSetupSummary();
+}
+
+function getDisplayModePlayerLimit(resolvedMode = getResolvedDisplayMode()) {
+  return DISPLAY_MODE_PLAYER_LIMITS[resolvedMode] || 4;
+}
+
+function getResolutionPlayerLimit() {
+  const metrics = getViewportMetrics();
+  const matchedLimit = RESOLUTION_PLAYER_LIMITS.find((rule) => (
+    metrics.width <= rule.maxWidth
+    || metrics.height <= rule.maxHeight
+    || metrics.area <= rule.maxArea
+  ));
+  return matchedLimit?.limit || 4;
+}
+
+function getPlayerLimitInfo(resolvedMode = getResolvedDisplayMode()) {
+  const displayLimit = getDisplayModePlayerLimit(resolvedMode);
+  const resolutionLimit = getResolutionPlayerLimit();
+  const limit = Math.min(displayLimit, resolutionLimit);
+  const reason = resolutionLimit < displayLimit
+    ? `현재 화면 크기에서는 ${limit}명까지 안정적으로 플레이할 수 있습니다.`
+    : '';
+  return { limit, displayLimit, resolutionLimit, reason };
+}
+
+function getDisplayPlayerLimit(resolvedMode = getResolvedDisplayMode()) {
+  return getPlayerLimitInfo(resolvedMode).limit;
+}
+
+function setSetupMessage(message = '', kind = '') {
+  setupMessageKind = kind;
+  elements.setupError.textContent = message;
+  elements.setupError.classList.toggle('is-note', kind === 'note');
+  elements.setupError.classList.toggle('is-error', kind === 'error');
+}
+
+function enforceDisplayModeRules() {
+  const resolvedMode = getResolvedDisplayMode();
+  const playerLimit = getDisplayPlayerLimit(resolvedMode);
+  selectedPlayers = clamp(selectedPlayers, 1, playerLimit);
+  if (resolvedMode === 'mobile' || playerLimit <= 1) {
+    selectedMode = 'solo';
+  }
+  if (resolvedMode === 'tablet' && selectedPlayers > 1) {
+    selectedMode = 'coop';
+  }
+  return resolvedMode;
+}
+
+function updateSetupSummary(options = {}) {
+  const resolvedMode = enforceDisplayModeRules();
+  const limitInfo = getPlayerLimitInfo(resolvedMode);
+  document.body.dataset.displayModeChoice = selectedDisplayMode;
+  document.body.dataset.displayMode = resolvedMode;
+  if (elements.displayModeToggle) {
+    const buttonLabel = getDisplayModeButtonLabel(selectedDisplayMode, resolvedMode);
+    elements.displayModeToggle.textContent = buttonLabel;
+    elements.displayModeToggle.dataset.displayMode = selectedDisplayMode;
+    elements.displayModeToggle.dataset.resolvedDisplayMode = resolvedMode;
+    elements.displayModeToggle.setAttribute('aria-label', `${buttonLabel}. 누르면 화면 모드가 바뀝니다.`);
+    elements.displayModeToggle.title = '화면 모드 전환: 자동 → 모바일 → 태블릿 → 전자칠판 → 웹';
+  }
+  if (elements.playMinutes) {
+    elements.playMinutes.value = selectedMinutes ? String(selectedMinutes) : '';
+  }
+  elements.startButton.disabled = !selectedMinutes;
+
+  $$('.option-button', elements.modeOptions).forEach((button) => {
+    const forcedTabletCoop = resolvedMode === 'tablet' && selectedPlayers > 1 && button.dataset.mode === 'solo';
+    const forcedMobileSolo = resolvedMode === 'mobile' && button.dataset.mode === 'coop';
+    const forcedLowResolutionSolo = limitInfo.limit <= 1 && button.dataset.mode === 'coop';
+    const unavailable = forcedTabletCoop || forcedMobileSolo || forcedLowResolutionSolo;
+    const modeId = button.dataset.mode;
+    button.textContent = getModeLabel(modeId, { resolvedMode, playerCount: selectedPlayers });
+    button.disabled = unavailable;
+    button.title = forcedLowResolutionSolo ? limitInfo.reason : '';
+    button.classList.toggle('is-disabled', unavailable);
+    button.classList.toggle('is-long-label', modeId === 'coop' && resolvedMode === 'tablet' && selectedPlayers === 2);
+    button.classList.toggle('is-selected', modeId === selectedMode);
+    button.setAttribute('aria-pressed', String(modeId === selectedMode));
+  });
+  $$('.option-button', elements.playerOptions).forEach((button) => {
+    const players = Number(button.dataset.players);
+    const unavailable = players > limitInfo.limit;
+    button.textContent = getPlayerCountLabel(players, resolvedMode);
+    button.disabled = unavailable;
+    button.title = unavailable ? (limitInfo.reason || `${resolvedMode === 'mobile' ? '모바일' : '현재'} 모드에서는 ${limitInfo.limit}명까지 플레이할 수 있습니다.`) : '';
+    button.classList.toggle('is-disabled', unavailable);
+    button.classList.toggle('is-long-label', resolvedMode === 'tablet' && players === 2);
+    button.classList.toggle('is-selected', players === selectedPlayers);
+    button.setAttribute('aria-pressed', String(players === selectedPlayers));
+    button.setAttribute('aria-disabled', String(unavailable));
+  });
+
+  if (!(options.keepError && setupMessageKind === 'error')) {
+    setSetupMessage(limitInfo.reason, limitInfo.reason ? 'note' : '');
+  }
+}
+
+function renderSetupControls() {
+  elements.quizPack.innerHTML = QUIZ_PACKS
+    .map((pack) => `<option value="${pack.id}">${escapeHtml(pack.label)}</option>`)
+    .join('');
+  elements.quizPack.value = selectedPackId;
+
+  elements.playMinutes.innerHTML = [
+    '<option value="">시간 선택</option>',
+    ...PLAY_MINUTES.map((minutes) => `<option value="${minutes}">${minutes}분</option>`)
+  ].join('');
+  elements.playMinutes.value = selectedMinutes ? String(selectedMinutes) : '';
+
+  elements.modeOptions.innerHTML = PLAY_MODES
+    .map((mode) => (
+      `<button class="option-button" type="button" data-mode="${mode.id}" aria-pressed="${mode.id === selectedMode}">
+        ${escapeHtml(mode.label)}
+      </button>`
+    ))
+    .join('');
+
+  elements.playerOptions.innerHTML = PLAYER_COUNTS
+    .map((count) => (
+      `<button class="option-button" type="button" data-players="${count}" aria-pressed="${count === selectedPlayers}">
+        ${count}명
+      </button>`
+    ))
+    .join('');
+
+  updateSetupSummary();
+}
+
+function parseCsv(text) {
+  const lines = text.trim().split(/\r?\n/).filter(Boolean);
+  return lines.slice(1).map((line, index) => {
+    const columns = line.split(',').map((value) => value.trim());
+    const choices = columns.slice(1, 5).filter(Boolean);
+    const answerIndex = Math.max(0, Number(columns[5]) - 1);
+    return {
+      id: `gugudan-${index + 1}`,
+      prompt: '정답을 고르세요',
+      text: columns[0],
+      choices,
+      answer: choices[answerIndex],
+      difficulty: 1,
+      asset: false,
+      hasQuestionImage: false,
+      hasChoiceImages: false
+    };
+  }).filter((question) => question.text && question.choices.length >= 2 && question.answer);
+}
+
+function normalizeJsonQuestions(payload) {
+  const questions = Array.isArray(payload?.questions) ? payload.questions : [];
+  return questions.map((question, index) => {
+    const rawQuestion = String(question.question || question.image || '').trim();
+    const choices = Array.isArray(question.choices) ? question.choices.slice(0, 4) : [];
+    const choiceOnlyImageQuestion = isChoiceOnlyImageQuestion(question);
+    const hasQuestionImage = !choiceOnlyImageQuestion && isQuizImageAsset(rawQuestion);
+    const hasChoiceImages = choices.some(isQuizImageAsset);
+    const fallbackText = String(question.text || question.title || question.prompt || '정답을 고르세요');
+    return {
+      id: String(question.id || `json-${index + 1}`),
+      prompt: String(question.prompt || '정답을 고르세요'),
+      text: hasQuestionImage || choiceOnlyImageQuestion ? '' : (rawQuestion || fallbackText),
+      image: hasQuestionImage ? toQuizImageSrc(rawQuestion) : '',
+      choices,
+      answer: question.answer,
+      difficulty: Math.max(1, Math.round(Number(question.difficulty) || 1)),
+      asset: hasQuestionImage || hasChoiceImages,
+      hasQuestionImage,
+      choiceOnlyImageQuestion,
+      hasChoiceImages
+    };
+  }).filter((question) => (
+    (question.hasQuestionImage || question.text || question.prompt)
+    && question.choices.length >= 2
+    && question.answer
+  ));
+}
+
+function loadInlinePack(packId, pack) {
+  const inlinePack = window.KNOLQUIZ_INLINE_PACKS?.[packId];
+  if (!inlinePack) return [];
+  return pack.kind === 'csv'
+    ? parseCsv(inlinePack.text || '')
+    : normalizeJsonQuestions(inlinePack.json || inlinePack);
+}
+
+async function loadPack(packId) {
+  if (packCache.has(packId)) return packCache.get(packId);
+  const pack = QUIZ_PACKS.find((item) => item.id === packId);
+  if (!pack) throw new Error('퀴즈팩을 찾을 수 없습니다.');
+  let questions = [];
+  try {
+    const response = await fetch(pack.path, { cache: 'no-store' });
+    if (!response.ok) throw new Error(`${pack.label} 데이터를 불러오지 못했습니다.`);
+    questions = pack.kind === 'csv'
+      ? parseCsv(await response.text())
+      : normalizeJsonQuestions(await response.json());
+  } catch (error) {
+    questions = loadInlinePack(packId, pack);
+    if (!questions.length) throw error;
+  }
+  if (!questions.length) throw new Error(`${pack.label}에 사용할 문제가 없습니다.`);
+  packCache.set(packId, questions);
+  return questions;
+}
+
+function createPlayers(count) {
+  return Array.from({ length: count }, (_, index) => ({
+    id: index + 1,
+    name: `플레이어 ${index + 1}`,
+    correct: 0,
+    wrong: 0,
+    quizGold: 0,
+    score: 0,
+    streak: 0,
+    maxStreak: 0,
+    quickAnswers: 0
+  }));
+}
+
+function createBattleState(playerIndex = 0) {
+  return {
+    playerIndex,
+    running: false,
+    lastFrameMs: performance.now(),
+    spawnCooldownMs: SPAWN_START_COOLDOWN_MS,
+    nextSpawnMs: 650,
+    nextShotMs: 0,
+    spawnSerial: 0,
+    worldElapsedMs: 0,
+    canvasWidth: 0,
+    canvasHeight: 0,
+    quizOpen: false,
+    questionQueue: [],
+    currentQuestion: null,
+    answerLocked: false,
+    selectedChoice: '',
+    questionStartedAtMs: 0,
+    feedback: '',
+    feedbackKind: '',
+    statusText: '전장 진행 중',
+    statusTone: '',
+    flow: {
+      label: '보통',
+      spawnCooldownMul: 1,
+      speedMul: 1,
+      capBonus: 0,
+      hardenedBonus: 0
+    },
+    ship: {
+      x: 0,
+      y: 0,
+      radius: 38,
+      maxHp: SHIP_BASE_MAX_HP,
+      hp: SHIP_BASE_MAX_HP,
+      attackPower: SHIP_BASE_ATTACK_POWER,
+      attackSpeedLevel: 0,
+      attackPowerLevel: 0,
+      projectileLevel: 0,
+      penetrationLevel: 0,
+      explosionLevel: 0,
+      hullLevel: 0,
+      projectileCount: 1,
+      goldSpent: 0,
+      respawnUntilMs: 0,
+      invulnerableUntilMs: 0,
+      deathCount: 0
+    },
+    score: {
+      points: 0,
+      kills: 0,
+      killPoints: 0,
+      gold: 0,
+      quizSolved: 0,
+      quizAttempts: 0,
+      combo: 0,
+      maxCombo: 0,
+      bonusPoints: 0,
+      hardenedKills: 0,
+      eliteKills: 0
+    },
+    waves: {
+      level: 1,
+      elapsedSec: 0
+    },
+    enemies: [],
+    projectiles: [],
+    effects: [],
+    random: null
+  };
+}
+
+function createQuizState(playerIndex = 0, questions = []) {
+  return {
+    playerIndex,
+    quizOpen: false,
+    questionQueue: shuffle(questions),
+    currentQuestion: null,
+    answerLocked: false,
+    selectedChoice: '',
+    questionStartedAtMs: 0,
+    feedback: '',
+    feedbackKind: '',
+    quizBurstAnswered: 0,
+    autoAdvanceTimerId: 0
+  };
+}
+
+function buildSession(questions) {
+  const startedAt = new Date();
+  const resolvedDisplayMode = enforceDisplayModeRules();
+  const sharedBattle = selectedMode === 'coop';
+  const combatSeed = hashSeed(`${selectedPackId}:${selectedPlayers}:${selectedMinutes}:${startedAt.getTime()}:${Math.random()}`);
+  const sessionState = {
+    packId: selectedPackId,
+    packLabel: getPackLabel(selectedPackId),
+    playMode: selectedMode,
+    modeLabel: getModeLabel(selectedMode, { resolvedMode: resolvedDisplayMode, playerCount: selectedPlayers }),
+    displayModeChoice: selectedDisplayMode,
+    displayMode: resolvedDisplayMode,
+    displayModeLabel: getDisplayModeLabel(selectedDisplayMode, resolvedDisplayMode),
+    sharedBattle,
+    combatSeed,
+    minutes: selectedMinutes,
+    durationSec: selectedMinutes * 60,
+    startedAt,
+    deadlineAt: Date.now() + selectedMinutes * 60 * 1000,
+    endedAt: null,
+    players: createPlayers(selectedPlayers),
+    activePlayerIndex: 0,
+    questions,
+    queue: shuffle(questions),
+    currentQuestion: null,
+    answerLocked: false,
+    selectedChoice: '',
+    questionStartedAtMs: 0,
+    answerTimerId: 0,
+    quizOpen: false,
+    timerId: null,
+    feedback: '',
+    feedbackKind: '',
+    playerQuizStates: Array.from({ length: selectedPlayers }, (_, index) => createQuizState(index, questions)),
+    battles: Array.from({ length: sharedBattle ? 1 : selectedPlayers }, (_, index) => createBattleState(index)),
+    battle: null
+  };
+  sessionState.battle = sessionState.battles[0];
+  sessionState.battles.forEach((battle) => {
+    battle.random = createBattleRandomState(combatSeed);
+    battle.questionQueue = shuffle(questions);
+  });
+  return sessionState;
+}
+
+function getActivePlayer() {
+  return session?.players[session.activePlayerIndex] || null;
+}
+
+function isSharedBattleSession() {
+  return Boolean(session?.sharedBattle);
+}
+
+function isTabletFaceToFaceSession() {
+  return Boolean(
+    session?.displayMode === 'tablet'
+    && session?.sharedBattle
+    && session.players.length === 2
+  );
+}
+
+function getSafePlayerIndex(index = currentBattleIndex) {
+  if (!session) return null;
+  return clamp(Number(index) || 0, 0, Math.max(0, session.players.length - 1));
+}
+
+function getGameplayBattleIndex(index = currentBattleIndex) {
+  if (!session) return 0;
+  return isSharedBattleSession()
+    ? 0
+    : clamp(Number(index) || 0, 0, Math.max(0, session.battles.length - 1));
+}
+
+function getQuizState(index = currentBattleIndex) {
+  if (!session) return null;
+  const safeIndex = getSafePlayerIndex(index);
+  return isSharedBattleSession()
+    ? session.playerQuizStates?.[safeIndex] || null
+    : session.battles[safeIndex] || null;
+}
+
+function updateSharedBattleQuizFlag() {
+  if (!isSharedBattleSession()) return;
+  const battle = session.battles[0];
+  if (battle) battle.quizOpen = false;
+}
+
+function getBattle(index = currentBattleIndex) {
+  if (!session) return null;
+  const battleIndex = getGameplayBattleIndex(index);
+  return session.battles[battleIndex] || null;
+}
+
+function setBattleContext(index = currentBattleIndex) {
+  if (!session) return null;
+  const safePlayerIndex = getSafePlayerIndex(index);
+  const battleIndex = getGameplayBattleIndex(safePlayerIndex);
+  const battle = session.battles[battleIndex];
+  if (!battle) return null;
+  currentBattleIndex = safePlayerIndex;
+  session.battle = battle;
+  battleCanvas = battleViews[battleIndex]?.canvas || null;
+  battleCtx = battleViews[battleIndex]?.ctx || null;
+  return battle;
+}
+
+function withBattleContext(index, callback) {
+  const previousIndex = currentBattleIndex;
+  const previousBattle = session?.battle || null;
+  const previousCanvas = battleCanvas;
+  const previousCtx = battleCtx;
+  const battle = setBattleContext(index);
+  if (!battle) return undefined;
+  try {
+    return callback(battle, index);
+  } finally {
+    currentBattleIndex = previousIndex;
+    if (session && previousBattle) session.battle = previousBattle;
+    battleCanvas = previousCanvas;
+    battleCtx = previousCtx;
+  }
+}
+
+function getBattleRoot(index = currentBattleIndex) {
+  const battleIndex = getGameplayBattleIndex(index);
+  return battleViews[battleIndex]?.panel || elements.gameStage;
+}
+
+function getBattleIndexFromElement(node) {
+  const panel = node?.closest?.('[data-battle-index]');
+  if (!panel) return currentBattleIndex;
+  return clamp(Number(panel.dataset.battleIndex) || 0, 0, Math.max(0, (session?.battles?.length || 1) - 1));
+}
+
+function getPlayerIndexFromElement(node) {
+  const ownedNode = node?.closest?.('[data-player-index]');
+  if (ownedNode) {
+    return clamp(Number(ownedNode.dataset.playerIndex) || 0, 0, Math.max(0, (session?.players?.length || 1) - 1));
+  }
+  return getBattleIndexFromElement(node);
+}
+
+function nextQuestion(quizState = getQuizState(currentBattleIndex)) {
+  if (!session || !quizState) return null;
+  if (!Array.isArray(quizState.questionQueue)) {
+    quizState.questionQueue = shuffle(session.questions);
+  }
+  if (!quizState.questionQueue.length) {
+    quizState.questionQueue = shuffle(session.questions);
+  }
+  const base = quizState.questionQueue.shift();
+  quizState.currentQuestion = {
+    ...base,
+    choices: shuffle(base.choices)
+  };
+  quizState.answerLocked = false;
+  quizState.selectedChoice = '';
+  quizState.questionStartedAtMs = 0;
+  quizState.feedback = '';
+  quizState.feedbackKind = '';
+  session.currentQuestion = quizState.currentQuestion;
+  return quizState.currentQuestion;
+}
+
+function clearQuizAutoAdvance(quizState) {
+  if (!quizState?.autoAdvanceTimerId) return;
+  window.clearTimeout(quizState.autoAdvanceTimerId);
+  quizState.autoAdvanceTimerId = 0;
+}
+
+function resetQuizBurst(quizState) {
+  if (!quizState) return;
+  clearQuizAutoAdvance(quizState);
+  quizState.quizBurstAnswered = 0;
+  quizState.currentQuestion = null;
+  quizState.answerLocked = false;
+  quizState.selectedChoice = '';
+  quizState.questionStartedAtMs = 0;
+  quizState.feedback = '';
+  quizState.feedbackKind = '';
+}
+
+function startQuizBurst(quizState) {
+  if (!quizState) return null;
+  clearQuizAutoAdvance(quizState);
+  quizState.quizBurstAnswered = 0;
+  return nextQuestion(quizState);
+}
+
+function getQuizBurstProgress(quizState) {
+  const answered = clamp(Number(quizState?.quizBurstAnswered) || 0, 0, QUIZ_BURST_QUESTION_COUNT);
+  const current = clamp(answered + (quizState?.answerLocked ? 0 : 1), 1, QUIZ_BURST_QUESTION_COUNT);
+  return { answered, current, total: QUIZ_BURST_QUESTION_COUNT };
+}
+
+function getQuizAutoProgressText(quizState) {
+  const progress = getQuizBurstProgress(quizState);
+  return progress.answered >= progress.total
+    ? `${progress.total}문제 완료 · 전장으로 복귀합니다`
+    : `${progress.answered}/${progress.total} 완료 · 다음 문제로 이동합니다`;
+}
+
+function renderQuizSurface(battleIndex = currentBattleIndex) {
+  if (!session) return;
+  if (isSharedBattleSession()) {
+    renderCoopQuizOverlay();
+    return;
+  }
+  renderQuestion(battleIndex);
+}
+
+function scheduleQuizAutoProgress(battleIndex = currentBattleIndex) {
+  if (!session) return;
+  const quizState = getQuizState(battleIndex);
+  if (!quizState) return;
+  clearQuizAutoAdvance(quizState);
+  const complete = quizState.quizBurstAnswered >= QUIZ_BURST_QUESTION_COUNT;
+  const delayMs = complete ? QUIZ_AUTO_CLOSE_DELAY_MS : QUIZ_AUTO_NEXT_DELAY_MS;
+  quizState.autoAdvanceTimerId = window.setTimeout(() => {
+    quizState.autoAdvanceTimerId = 0;
+    if (!session || session.endedAt) return;
+    if (Date.now() >= session.deadlineAt) {
+      finishSession();
+      return;
+    }
+    setBattleContext(battleIndex);
+    const nextQuizState = getQuizState(battleIndex);
+    if (!nextQuizState?.quizOpen) return;
+    if (nextQuizState.quizBurstAnswered >= QUIZ_BURST_QUESTION_COUNT) {
+      closeQuizModal(battleIndex, { completedBurst: true });
+      return;
+    }
+    nextQuestion(nextQuizState);
+    renderQuizSurface(battleIndex);
+    refreshBattleHud(battleIndex);
+  }, delayMs);
+}
+
+function rotatePlayer() {
+  session.activePlayerIndex = (session.activePlayerIndex + 1) % session.players.length;
+}
+
+function getEnemyRoleConfig(tier) {
+  return ENEMY_ROLE_CONFIG[Math.max(1, Math.min(10, Number(tier) || 1))] || ENEMY_ROLE_CONFIG[1];
+}
+
+function getUnlockedEnemyTier(elapsedSec) {
+  const tier = 2 + Math.floor(Math.max(0, elapsedSec) / ENEMY_TIER_UNLOCK_STEP_SEC);
+  return clamp(tier, 2, 10);
+}
+
+function getEliteUnlockedTier(elapsedSec) {
+  if (elapsedSec < ELITE_UNLOCK_TIME_SEC) return 0;
+  const tier = 1 + Math.floor((elapsedSec - ELITE_UNLOCK_TIME_SEC) / ELITE_TIER_UNLOCK_STEP_SEC);
+  return clamp(tier, 1, 10);
+}
+
+function shouldSpawnEliteEnemy(elapsedSec, eliteTier) {
+  if (eliteTier <= 0) return false;
+  const chance = clamp(0.08 + ((elapsedSec - ELITE_UNLOCK_TIME_SEC) / 280) * 0.5, 0.08, 0.55);
+  return battleRandom() < chance;
+}
+
+function getLateWavePressure(elapsedSec) {
+  if (elapsedSec >= 420) return 2;
+  if (elapsedSec >= 260) return 1;
+  return 0;
+}
+
+function getFlowState(elapsedSec) {
+  const cyclePos = ((elapsedSec % FLOW_CYCLE_SEC) + FLOW_CYCLE_SEC) % FLOW_CYCLE_SEC;
+  const pulse = Math.sin(elapsedSec * 0.45) * 0.08;
+  const latePressure = getLateWavePressure(elapsedSec);
+  let flow = {
+    label: '보통',
+    spawnCooldownMul: 1,
+    speedMul: 1,
+    capBonus: 0,
+    hardenedBonus: 0
+  };
+
+  if (cyclePos >= FLOW_LULL_START_SEC && cyclePos < FLOW_LULL_END_SEC) {
+    flow = {
+      label: '완급-완',
+      spawnCooldownMul: 1.35,
+      speedMul: 0.9,
+      capBonus: -2,
+      hardenedBonus: -0.03
+    };
+  } else if (cyclePos >= FLOW_SURGE_START_SEC && cyclePos < FLOW_SURGE_END_SEC) {
+    flow = {
+      label: '러시',
+      spawnCooldownMul: 0.68,
+      speedMul: 1.18,
+      capBonus: 5,
+      hardenedBonus: 0.12
+    };
+  } else if (cyclePos >= FLOW_SURGE_END_SEC && cyclePos < FLOW_AFTERSHOCK_END_SEC) {
+    flow = {
+      label: '압박',
+      spawnCooldownMul: 0.84,
+      speedMul: 1.08,
+      capBonus: 2,
+      hardenedBonus: 0.06
+    };
+  }
+
+  if (latePressure >= 1) {
+    flow = {
+      ...flow,
+      label: flow.label === '보통' ? '후반 압박' : `${flow.label} · 후반`,
+      spawnCooldownMul: flow.spawnCooldownMul * 0.94,
+      speedMul: flow.speedMul * 1.03,
+      capBonus: flow.capBonus + 2,
+      hardenedBonus: flow.hardenedBonus + 0.04
+    };
+  }
+  if (latePressure >= 2) {
+    flow = {
+      ...flow,
+      label: flow.label.includes('후반') ? '최종 압박' : `${flow.label} · 최종`,
+      spawnCooldownMul: flow.spawnCooldownMul * 0.9,
+      speedMul: flow.speedMul * 1.04,
+      capBonus: flow.capBonus + 2,
+      hardenedBonus: flow.hardenedBonus + 0.05
+    };
+  }
+
+  return {
+    ...flow,
+    spawnCooldownMul: clamp(flow.spawnCooldownMul * (1 - pulse * 0.45), 0.55, 1.55),
+    speedMul: clamp(flow.speedMul * (1 + pulse), 0.82, 1.3)
+  };
+}
+
+function getShipAttackSpeedMultiplier() {
+  return 1 + session.battle.ship.attackSpeedLevel * SHIP_ATTACK_SPEED_LEVEL_STEP;
+}
+
+function getAttackCooldownMs() {
+  const speedMultiplier = getShipAttackSpeedMultiplier();
+  const earlyProgress = clamp(session.battle.waves.elapsedSec / EARLY_ATTACK_SLOW_WINDOW_SEC, 0, 1);
+  const earlySlowRatio = EARLY_ATTACK_SLOW_MAX_RATIO - ((EARLY_ATTACK_SLOW_MAX_RATIO - 1) * earlyProgress);
+  return (SHIP_BASE_ATTACK_COOLDOWN_MS * earlySlowRatio) / speedMultiplier;
+}
+
+function getShipPenetrationHits() {
+  return Math.max(0, session.battle.ship.penetrationLevel);
+}
+
+function getShipExplosionRadius() {
+  return session.battle.ship.explosionLevel > 0
+    ? 44 + Math.max(0, session.battle.ship.explosionLevel - 1) * 12
+    : 0;
+}
+
+function getShipExplosionDamageRatio() {
+  return session.battle.ship.explosionLevel > 0
+    ? clamp(0.34 + Math.max(0, session.battle.ship.explosionLevel - 1) * 0.08, 0.34, 0.72)
+    : 0;
+}
+
+function getShipDamageReductionRatio() {
+  return clamp(session.battle.ship.hullLevel * SHIP_HULL_DAMAGE_REDUCTION_STEP, 0, SHIP_DAMAGE_REDUCTION_MAX);
+}
+
+function getHealCost() {
+  return 24 + Math.floor(session.battle.ship.goldSpent / 45) * 4;
+}
+
+function getSpeedUpgradeCost() {
+  return Math.round(10 * Math.pow(1.32, session.battle.ship.attackSpeedLevel));
+}
+
+function getPowerUpgradeCost() {
+  return Math.round(12 * Math.pow(1.36, session.battle.ship.attackPowerLevel));
+}
+
+function getBulletUpgradeCost() {
+  return Math.round(18 * Math.pow(1.42, session.battle.ship.projectileLevel));
+}
+
+function getPenetrationUpgradeCost() {
+  return Math.round(16 * Math.pow(1.4, session.battle.ship.penetrationLevel));
+}
+
+function getExplosionUpgradeCost() {
+  return Math.round(20 * Math.pow(1.46, session.battle.ship.explosionLevel));
+}
+
+function getHullUpgradeCost() {
+  return Math.round(18 * Math.pow(1.38, session.battle.ship.hullLevel));
+}
+
+function setBattleStatus(text, tone = '') {
+  if (!session) return;
+  const battle = session.battle;
+  const root = getBattleRoot(battle?.playerIndex || currentBattleIndex);
+  battle.statusText = String(text || '').trim();
+  battle.statusTone = tone;
+  $$('[data-ref="battle-status"]', root).forEach((toast) => {
+    toast.textContent = battle.statusText;
+    toast.className = `battle-status ${tone}`;
+  });
+}
+
+function renderPlayerChips() {
+  if (!session) return '';
+  return session.players.map((player, index) => `
+    <div class="score-chip ${index === session.activePlayerIndex ? 'active-player' : ''}">
+      <b>${escapeHtml(player.name)}</b>
+      <span>${player.score.toLocaleString('ko-KR')}점 · ${player.streak}연속</span>
+    </div>
+  `).join('');
+}
+
+function renderUpgradeButtons() {
+  return UPGRADE_ACTIONS
+    .map((action) => `<button class="upgrade-button" type="button" data-action="${action}"></button>`)
+    .join('');
+}
+
+function renderBattlePanel(player, index) {
+  return `
+    <article class="battle-panel" data-battle-index="${index}">
+      <div class="battle-player-head">
+        <div>
+          <b>${escapeHtml(player.name)}</b>
+          <span data-ref="player-summary">0점 · 0연속</span>
+        </div>
+        <em>${index + 1}P</em>
+      </div>
+      <div class="battlefield-slot">
+        <div class="battlefield-shell">
+          <canvas class="battle-canvas" aria-label="${escapeHtml(player.name)} 거북선 전투 전장"></canvas>
+        </div>
+      </div>
+      <div class="battle-command">
+        <div class="battle-stat-grid">
+          <div class="battle-stat ship-hp-stat">
+            <b>내구도</b>
+            <span data-ref="ship-hp">300/300</span>
+            <div class="hud-hp-bar" aria-hidden="true"><i data-ref="ship-hp-fill"></i></div>
+          </div>
+          <div class="battle-stat"><b>Wave/전장</b><span data-ref="wave-level">Lv.1</span></div>
+          <div class="battle-stat score-stat"><b>점수</b><span data-ref="score-points">0</span></div>
+          <div class="battle-stat"><b>격퇴/콤보</b><span data-ref="kill-combo">0 / x0</span></div>
+          <div class="battle-stat"><b>GOLD</b><span data-ref="resource-score">0</span></div>
+          <div class="battle-stat"><b>화력</b><span data-ref="attack-stat">14</span></div>
+        </div>
+        <div class="battle-control-row">
+          <button class="quiz-open-button" type="button" data-action="quiz">퀴즈 열기</button>
+          <div class="battle-status" data-ref="battle-status">전장 진행 중</div>
+        </div>
+        <div class="upgrade-grid">
+          ${renderUpgradeButtons()}
+        </div>
+      </div>
+      <div class="battle-quiz-layer is-hidden" data-ref="battle-quiz-layer" aria-label="${escapeHtml(player.name)} 퀴즈"></div>
+    </article>
+  `;
+}
+
+function renderCoopPlayerControls() {
+  return `
+    <div class="coop-player-control-grid player-count-${session.players.length}" aria-label="플레이어별 조작 화면">
+      ${session.players.map((player, index) => `
+        <section class="coop-player-control-card" data-player-index="${index}" aria-label="${escapeHtml(player.name)} 조작 화면">
+          <div class="coop-player-control-head">
+            <span>${index + 1}P</span>
+            <b>${escapeHtml(player.name)}</b>
+          </div>
+          <button class="quiz-open-button player-control-quiz" type="button" data-action="quiz" aria-label="${escapeHtml(player.name)} 퀴즈 풀기">
+            <span>${index + 1}P</span>
+            <b>퀴즈 풀기</b>
+          </button>
+          <div class="upgrade-grid player-upgrade-grid">
+            ${renderUpgradeButtons()}
+          </div>
+        </section>
+      `).join('')}
+    </div>
+  `;
+}
+
+function renderTabletTeamHud() {
+  return `
+    <div class="tablet-team-hud" aria-label="팀 전장 상태">
+      <div class="battle-stat ship-hp-stat">
+        <b>팀 내구도</b>
+        <span data-ref="ship-hp">300/300</span>
+        <div class="hud-hp-bar" aria-hidden="true"><i data-ref="ship-hp-fill"></i></div>
+      </div>
+      <div class="battle-stat"><b>Wave/전장</b><span data-ref="wave-level">Lv.1</span></div>
+      <div class="battle-stat score-stat"><b>팀 점수</b><span data-ref="score-points">0</span></div>
+      <div class="battle-stat"><b>격퇴/콤보</b><span data-ref="kill-combo">0 / x0</span></div>
+      <div class="battle-stat"><b>공유 GOLD</b><span data-ref="resource-score">0</span></div>
+      <div class="battle-stat"><b>화력</b><span data-ref="attack-stat">14</span></div>
+      <div class="battle-status" data-ref="battle-status">태블릿 대면 전장 진행 중</div>
+    </div>
+  `;
+}
+
+function renderTabletPlayerZone(player, index, flipped = false) {
+  return `
+    <section class="tablet-player-zone ${flipped ? 'is-flipped' : ''}" data-player-index="${index}" aria-label="${escapeHtml(player.name)} 태블릿 조작 화면">
+      ${renderTabletTeamHud()}
+      <div class="tablet-player-control-card">
+        <div class="tablet-player-head">
+          <span>${index + 1}P</span>
+          <b>${escapeHtml(player.name)}</b>
+        </div>
+        <button class="quiz-open-button player-control-quiz tablet-quiz-button" type="button" data-action="quiz" aria-label="${escapeHtml(player.name)} 퀴즈 풀기">
+          <span>${index + 1}P</span>
+          <b>퀴즈 풀기</b>
+        </button>
+        <div class="upgrade-grid tablet-upgrade-grid">
+          ${renderUpgradeButtons()}
+        </div>
+      </div>
+    </section>
+  `;
+}
+
+function renderTabletQuizLayer(player, index, side, flipped = false) {
+  return `
+    <div class="tablet-player-quiz-layer tablet-quiz-${side} ${flipped ? 'is-flipped' : ''} is-hidden" data-ref="tablet-player-quiz-layer" data-player-index="${index}" aria-label="${escapeHtml(player.name)} 퀴즈"></div>
+  `;
+}
+
+function renderTabletCoopBattlePanel() {
+  const topPlayer = session.players[1];
+  const bottomPlayer = session.players[0];
+  return `
+    <article class="battle-panel battle-panel-coop battle-panel-tablet" data-battle-index="0">
+      ${renderTabletPlayerZone(topPlayer, 1, true)}
+      <div class="tablet-battle-core">
+        <div class="battlefield-slot">
+          <div class="battlefield-shell">
+            <canvas class="battle-canvas" aria-label="태블릿 함께 풀기 거북선 전투 전장"></canvas>
+          </div>
+        </div>
+      </div>
+      ${renderTabletPlayerZone(bottomPlayer, 0)}
+      ${renderTabletQuizLayer(topPlayer, 1, 'top', true)}
+      ${renderTabletQuizLayer(bottomPlayer, 0, 'bottom')}
+    </article>
+  `;
+}
+
+function renderCoopBattlePanel() {
+  return `
+    <article class="battle-panel battle-panel-coop" data-battle-index="0">
+      <div class="battle-player-head">
+        <div>
+          <b>함께 풀기</b>
+          <span data-ref="player-summary">팀 공유 전장 · 0점</span>
+        </div>
+        <em>TEAM</em>
+      </div>
+      <div class="battlefield-slot">
+        <div class="battlefield-shell">
+          <canvas class="battle-canvas" aria-label="함께 풀기 거북선 전투 전장"></canvas>
+        </div>
+      </div>
+      <div class="battle-command">
+        <div class="battle-stat-grid">
+          <div class="battle-stat ship-hp-stat">
+            <b>팀 내구도</b>
+            <span data-ref="ship-hp">300/300</span>
+            <div class="hud-hp-bar" aria-hidden="true"><i data-ref="ship-hp-fill"></i></div>
+          </div>
+          <div class="battle-stat"><b>Wave/전장</b><span data-ref="wave-level">Lv.1</span></div>
+          <div class="battle-stat score-stat"><b>팀 점수</b><span data-ref="score-points">0</span></div>
+          <div class="battle-stat"><b>격퇴/콤보</b><span data-ref="kill-combo">0 / x0</span></div>
+          <div class="battle-stat"><b>공유 GOLD</b><span data-ref="resource-score">0</span></div>
+          <div class="battle-stat"><b>화력</b><span data-ref="attack-stat">14</span></div>
+        </div>
+        <div class="battle-control-row">
+          <div class="battle-status" data-ref="battle-status">팀 전장 진행 중</div>
+        </div>
+        ${renderCoopPlayerControls()}
+      </div>
+      <div class="coop-quiz-split-layer is-hidden player-count-${session.players.length}" data-ref="coop-quiz-split-layer" aria-label="함께 풀기 퀴즈 분할 화면"></div>
+    </article>
+  `;
+}
+
+function renderStageShell() {
+  const tabletFaceToFace = isTabletFaceToFaceSession();
+  const stageClass = isSharedBattleSession()
+    ? `stage-panel stage-panel-coop split-count-1 ${tabletFaceToFace ? 'stage-panel-tablet-face' : ''}`
+    : `stage-panel split-count-${session.players.length}`;
+  const gridClass = isSharedBattleSession()
+    ? `split-battle-grid split-count-1 coop-battle-grid ${tabletFaceToFace ? 'tablet-face-grid' : ''}`
+    : `split-battle-grid split-count-${session.players.length}`;
+  const panelHtml = isSharedBattleSession()
+    ? (tabletFaceToFace ? renderTabletCoopBattlePanel() : renderCoopBattlePanel())
+    : session.players.map((player, index) => renderBattlePanel(player, index)).join('');
+  elements.gameStage.innerHTML = `
+      <div class="${stageClass}">
+        <div class="${gridClass}">
+          ${panelHtml}
+        </div>
+      </div>
+  `;
+
+  battleViews = $$('.battle-panel', elements.gameStage).map((panel, index) => {
+    const canvas = $('.battle-canvas', panel);
+    return {
+      index,
+      panel,
+      canvas,
+      ctx: canvas.getContext('2d')
+    };
+  });
+  elements.gameStage.onclick = handleBattleAction;
+  setBattleContext(0);
+  syncAllCanvasSizes();
+  refreshAllBattleHuds();
+}
+
+function setUpgradeButton(button, disabled, title, meta, cost) {
+  if (!button) return;
+  const compact = Boolean(button.closest('.battle-panel-tablet'));
+  const detail = compact ? cost : `${meta} · ${cost}`;
+  button.disabled = disabled;
+  button.setAttribute('aria-label', `${title} ${meta} ${cost}`);
+  button.innerHTML = `
+    <span>${escapeHtml(title)}</span>
+    <small>${escapeHtml(detail)}</small>
+  `;
+}
+
+function setUpgradeButtons(root, action, disabled, title, meta, cost) {
+  $$(`[data-action="${action}"]`, root).forEach((button) => {
+    setUpgradeButton(button, disabled, title, meta, cost);
+  });
+}
+
+function refreshBattleHud(index = currentBattleIndex) {
+  if (!session) return;
+  setBattleContext(index);
+  const battle = session.battle;
+  const ship = battle.ship;
+  const player = session.players[isSharedBattleSession() ? getSafePlayerIndex(index) : battle.playerIndex] || session.players[0];
+  const root = getBattleRoot(index);
+  const setText = (ref, text) => {
+    $$(`[data-ref="${ref}"]`, root).forEach((node) => {
+      node.textContent = text;
+    });
+  };
+
+  setText(
+    'player-summary',
+    isSharedBattleSession()
+      ? `팀 공유 전장 · ${battle.score.points.toLocaleString('ko-KR')}점 · ${session.players.length}명`
+      : `${player.score.toLocaleString('ko-KR')}점 · ${player.streak}연속`
+  );
+
+  setText('ship-hp', `${Math.max(0, Math.round(ship.hp))}/${ship.maxHp}`);
+  setText('wave-level', `Lv.${battle.waves.level} · ${battle.flow.label}`);
+  setText('score-points', battle.score.points.toLocaleString('ko-KR'));
+  setText('kill-combo', `${battle.score.kills} / x${battle.score.combo}`);
+  setText('resource-score', battle.score.gold.toLocaleString('ko-KR'));
+  setText('attack-stat', `${ship.attackPower} · ${ship.projectileCount}발`);
+  const hpRatio = ship.maxHp > 0 ? clamp(ship.hp / ship.maxHp, 0, 1) : 0;
+  $$('.ship-hp-stat', root).forEach((hpStatNode) => {
+    hpStatNode.classList.toggle('is-warning', hpRatio <= 0.48 && hpRatio > 0.22);
+    hpStatNode.classList.toggle('is-danger', hpRatio <= 0.22);
+  });
+  $$('[data-ref="ship-hp-fill"]', root).forEach((hpFill) => {
+    hpFill.style.width = `${Math.round(hpRatio * 100)}%`;
+  });
+
+  const quizButtons = $$('[data-action="quiz"]', root);
+  if (quizButtons.length) {
+    quizButtons.forEach((quizButton) => {
+      const playerIndex = getPlayerIndexFromElement(quizButton);
+      const quizState = getQuizState(playerIndex);
+      quizButton.disabled = Boolean(quizState?.quizOpen || session.endedAt);
+      if (isSharedBattleSession()) {
+        const quizPlayer = session.players[playerIndex] || session.players[0];
+        quizButton.classList.toggle('is-active', Boolean(quizState?.quizOpen));
+        quizButton.setAttribute('aria-label', `${quizPlayer.name} ${quizState?.quizOpen ? '퀴즈 풀이 중' : '퀴즈 풀기'}`);
+        quizButton.innerHTML = `
+          <span>${playerIndex + 1}P</span>
+          <b>${quizState?.quizOpen ? '풀이 중' : '퀴즈 풀기'}</b>
+        `;
+      } else {
+        quizButton.textContent = quizState?.quizOpen
+          ? '퀴즈 진행 중'
+          : '퀴즈 열기';
+      }
+    });
+  }
+
+  const healCost = getHealCost();
+  setUpgradeButtons(
+    root,
+    'heal',
+    ship.hp >= ship.maxHp || battle.score.gold < healCost || isShipRespawning(),
+    '회복',
+    '+44 HP',
+    `${healCost}G`
+  );
+  setUpgradeButtons(
+    root,
+    'speed',
+    battle.score.gold < getSpeedUpgradeCost(),
+    '연사',
+    `Lv.${ship.attackSpeedLevel}`,
+    `${getSpeedUpgradeCost()}G`
+  );
+  setUpgradeButtons(
+    root,
+    'power',
+    battle.score.gold < getPowerUpgradeCost(),
+    '화력',
+    `Lv.${ship.attackPowerLevel}`,
+    `${getPowerUpgradeCost()}G`
+  );
+  setUpgradeButtons(
+    root,
+    'projectile',
+    battle.score.gold < getBulletUpgradeCost(),
+    '포탄',
+    `${ship.projectileCount}발`,
+    `${getBulletUpgradeCost()}G`
+  );
+  setUpgradeButtons(
+    root,
+    'penetration',
+    battle.score.gold < getPenetrationUpgradeCost(),
+    '관통',
+    `Lv.${ship.penetrationLevel}`,
+    `${getPenetrationUpgradeCost()}G`
+  );
+  setUpgradeButtons(
+    root,
+    'explosion',
+    battle.score.gold < getExplosionUpgradeCost(),
+    '폭발',
+    `Lv.${ship.explosionLevel}`,
+    `${getExplosionUpgradeCost()}G`
+  );
+  setUpgradeButtons(
+    root,
+    'hull',
+    battle.score.gold < getHullUpgradeCost(),
+    '선체',
+    `Lv.${ship.hullLevel}`,
+    `${getHullUpgradeCost()}G`
+  );
+}
+
+function refreshAllBattleHuds() {
+  if (!session) return;
+  const previousIndex = currentBattleIndex;
+  session.battles.forEach((battle) => refreshBattleHud(battle.playerIndex));
+  setBattleContext(previousIndex);
+}
+
+function handleBattleAction(event) {
+  const quizControl = event.target.closest('[data-choice], [data-quiz-close]');
+  if (quizControl && session) {
+    const battleIndex = getPlayerIndexFromElement(quizControl);
+    if (quizControl.matches('[data-choice]')) {
+      submitAnswer(quizControl.dataset.choice || '', battleIndex);
+    } else {
+      closeQuizModal(battleIndex);
+    }
+    return;
+  }
+
+  const button = event.target.closest('[data-action]');
+  if (!button || !session || button.disabled) return;
+  const battleIndex = getPlayerIndexFromElement(button);
+  setBattleContext(battleIndex);
+  session.activePlayerIndex = battleIndex;
+  const action = button.dataset.action;
+  const battle = session.battle;
+  const ship = battle.ship;
+  if (action === 'quiz') {
+    openQuizModal(battleIndex);
+    return;
+  }
+  if (action === 'heal') {
+    const cost = getHealCost();
+    if (battle.score.gold < cost || ship.hp >= ship.maxHp || isShipRespawning()) return;
+    battle.score.gold -= cost;
+    ship.goldSpent += cost;
+    ship.hp = clamp(ship.hp + 44, 0, ship.maxHp);
+    setBattleStatus(`체력 회복 +44 (GOLD -${cost})`, 'success');
+  } else {
+    runShipUpgrade(action);
+  }
+  refreshBattleHud(battleIndex);
+}
+
+function handleBattlePointerDown(event) {
+  const button = event.target.closest('[data-action="quiz"]');
+  if (!button || !session || button.disabled) return;
+  if (event.pointerType === 'mouse' && event.button !== 0) return;
+  event.preventDefault();
+  const battleIndex = getPlayerIndexFromElement(button);
+  openQuizModal(battleIndex);
+}
+
+function runShipUpgrade(action) {
+  const battle = session.battle;
+  const ship = battle.ship;
+  const costMap = {
+    speed: getSpeedUpgradeCost,
+    power: getPowerUpgradeCost,
+    projectile: getBulletUpgradeCost,
+    penetration: getPenetrationUpgradeCost,
+    explosion: getExplosionUpgradeCost,
+    hull: getHullUpgradeCost
+  };
+  const cost = costMap[action]?.() || 0;
+  if (battle.score.gold < cost) return;
+  battle.score.gold -= cost;
+  ship.goldSpent += cost;
+
+  if (action === 'speed') {
+    ship.attackSpeedLevel += 1;
+    setBattleStatus(`공격속도 Lv.${ship.attackSpeedLevel} 강화`, 'success');
+  } else if (action === 'power') {
+    ship.attackPowerLevel += 1;
+    ship.attackPower = Math.round(ship.attackPower * (1 + SHIP_ATTACK_POWER_LEVEL_STEP));
+    setBattleStatus(`공격력 Lv.${ship.attackPowerLevel} 강화`, 'success');
+  } else if (action === 'projectile') {
+    ship.projectileLevel += 1;
+    ship.projectileCount = Math.min(6, ship.projectileCount + 1);
+    setBattleStatus(`포탄 수 ${ship.projectileCount}발`, 'success');
+  } else if (action === 'penetration') {
+    ship.penetrationLevel += 1;
+    setBattleStatus(`관통 Lv.${ship.penetrationLevel} 강화`, 'success');
+  } else if (action === 'explosion') {
+    ship.explosionLevel += 1;
+    setBattleStatus(`폭발탄 Lv.${ship.explosionLevel} 강화`, 'success');
+  } else if (action === 'hull') {
+    const hpGain = Math.round(SHIP_HULL_HP_STEP * (1 + ship.hullLevel * 0.08));
+    ship.hullLevel += 1;
+    ship.maxHp += hpGain;
+    ship.hp = Math.min(ship.maxHp, ship.hp + Math.round(hpGain * 0.75));
+    setBattleStatus(`선체 강화 · 최대 HP +${hpGain}`, 'success');
+  }
+}
+
+function renderChoiceButton(choice, index, question, battle) {
+  const choiceValue = String(choice);
+  const hasImageChoice = isQuizImageAsset(choiceValue);
+  const isLocked = Boolean(battle?.answerLocked);
+  const isAnswer = choiceValue === String(question.answer);
+  const isSelected = choiceValue === String(battle?.selectedChoice || '');
+  const choiceClasses = ['choice-button'];
+  if (hasImageChoice) choiceClasses.push('has-image-choice');
+  if (isLocked && isAnswer) {
+    choiceClasses.push('is-correct');
+  } else if (isLocked && isSelected) {
+    choiceClasses.push('is-wrong');
+  }
+  const choiceBody = hasImageChoice
+    ? `<span class="choice-media"><img src="${toQuizImageSrc(escapeHtml(choiceValue))}" alt="선택지 ${index + 1}" /></span>`
+    : `<span class="choice-text">${escapeHtml(choiceValue)}</span>`;
+  return `
+    <button class="${choiceClasses.join(' ')}" type="button" data-choice="${escapeHtml(choiceValue)}" ${isLocked ? 'disabled' : ''}>
+      <span class="choice-index">${index + 1}</span>
+      ${choiceBody}
+    </button>
+  `;
+}
+
+function advanceQuestionAfterAnswer(battleIndex = currentBattleIndex) {
+  if (!session) return;
+  if (Date.now() >= session.deadlineAt) {
+    finishSession();
+    return;
+  }
+  setBattleContext(battleIndex);
+  nextQuestion(getQuizState(battleIndex));
+  refreshBattleHud(battleIndex);
+}
+
+function openQuizModal(battleIndex = currentBattleIndex) {
+  if (!session || session.endedAt) return;
+  setBattleContext(battleIndex);
+  session.activePlayerIndex = battleIndex;
+  if (isSharedBattleSession()) {
+    const quizState = getQuizState(battleIndex);
+    if (!quizState) return;
+    if (!quizState.quizOpen) {
+      startQuizBurst(quizState);
+    } else if (!quizState.currentQuestion) {
+      nextQuestion(quizState);
+    }
+    quizState.quizOpen = true;
+    updateSharedBattleQuizFlag();
+    renderCoopQuizOverlay();
+    const openCount = session.playerQuizStates.filter((item) => item.quizOpen).length;
+    setBattleStatus(`${openCount}명 퀴즈 풀이 중 · 팀 전장 계속 진행`, '');
+    refreshBattleHud(battleIndex);
+    return;
+  }
+  const quizState = getQuizState(battleIndex);
+  if (!quizState.quizOpen) {
+    startQuizBurst(quizState);
+  } else if (!quizState.currentQuestion) {
+    nextQuestion(quizState);
+  }
+  quizState.quizOpen = true;
+  renderQuestion(battleIndex);
+  setBattleStatus('퀴즈 풀이 중 · 전장 속도 감소', '');
+  refreshBattleHud(battleIndex);
+}
+
+function closeQuizModal(battleIndex = currentBattleIndex, options = {}) {
+  if (!session) {
+    elements.questionArea.classList.add('is-hidden');
+    elements.questionArea.innerHTML = '';
+    return;
+  }
+  setBattleContext(battleIndex);
+  const quizState = getQuizState(battleIndex);
+  const completedBurst = Boolean(options.completedBurst);
+  if (quizState) {
+    quizState.quizOpen = false;
+    resetQuizBurst(quizState);
+  }
+  if (isSharedBattleSession()) {
+    updateSharedBattleQuizFlag();
+    renderCoopQuizOverlay();
+    const openCount = session.playerQuizStates.filter((item) => item.quizOpen).length;
+    setBattleStatus(
+      openCount > 0 ? `${openCount}명 퀴즈 풀이 중 · 강화/회복 가능` : (completedBurst ? '3문제 완료 · 전장 복귀' : '전장 진행 중'),
+      completedBurst ? 'success' : ''
+    );
+    refreshBattleHud(battleIndex);
+    return;
+  } else {
+    const root = getBattleRoot(battleIndex);
+    const layer = $('[data-ref="battle-quiz-layer"]', root);
+    if (layer) {
+      layer.classList.add('is-hidden');
+      layer.innerHTML = '';
+    }
+  }
+  setBattleStatus(completedBurst ? '3문제 완료 · 전장 복귀' : '전장 진행 중', completedBurst ? 'success' : '');
+  refreshBattleHud(battleIndex);
+}
+
+function showNextQuestionInModal(battleIndex = currentBattleIndex) {
+  if (!session) return;
+  setBattleContext(battleIndex);
+  const quizState = getQuizState(battleIndex);
+  if (!quizState?.answerLocked) return;
+  clearQuizAutoAdvance(quizState);
+  if (quizState.quizBurstAnswered >= QUIZ_BURST_QUESTION_COUNT) {
+    closeQuizModal(battleIndex, { completedBurst: true });
+    return;
+  }
+  advanceQuestionAfterAnswer(battleIndex);
+  if (!session || session.endedAt) return;
+  renderQuizSurface(battleIndex);
+}
+
+function renderQuizPlaceholder(player, playerIndex) {
+  return `
+    <div class="quiz-placeholder-card">
+      <span>${playerIndex + 1}P</span>
+      <b>${escapeHtml(player?.name || '플레이어')}</b>
+      <p>이 칸에서 바로 문제를 풀 수 있습니다.</p>
+      <button class="quiz-open-button" type="button" data-action="quiz" data-player-index="${playerIndex}">퀴즈 열기</button>
+    </div>
+  `;
+}
+
+function buildQuizCardHtml(playerIndex = currentBattleIndex) {
+  const quizState = getQuizState(playerIndex);
+  if (!quizState?.currentQuestion) return '';
+  if (!quizState.answerLocked && !quizState.questionStartedAtMs) {
+    quizState.questionStartedAtMs = Date.now();
+  }
+  const question = quizState.currentQuestion;
+  const activePlayer = session.players[playerIndex] || getActivePlayer();
+  const burstProgress = getQuizBurstProgress(quizState);
+  const autoProgressText = getQuizAutoProgressText(quizState);
+  const hasQuestionImage = Boolean(question.hasQuestionImage && question.image);
+  const hasChoiceImages = question.choices.some(isQuizImageAsset);
+  const modalClasses = [
+    'quiz-modal-card',
+    'battle-quiz-card',
+    hasQuestionImage ? 'has-question-image' : 'no-question-image',
+    hasChoiceImages ? 'has-choice-images' : 'has-text-choices',
+    question.choiceOnlyImageQuestion ? 'choice-only-image-question' : ''
+  ];
+  const questionBody = question.choiceOnlyImageQuestion
+    ? ''
+    : (hasQuestionImage
+    ? `<div class="question-image-wrap"><img src="${question.image}" alt="${escapeHtml(question.prompt)}" /></div>`
+    : `<p class="question-text">${escapeHtml(question.text || question.prompt)}</p>`);
+
+  return `
+    <div class="${modalClasses.join(' ')}" role="dialog" aria-labelledby="quiz-modal-title-${playerIndex}">
+      <div class="quiz-modal-head">
+        <div class="quiz-title-block">
+          <div class="question-kicker">${escapeHtml(activePlayer?.name || '플레이어')} · ${burstProgress.current}/${burstProgress.total}</div>
+          <h3 id="quiz-modal-title-${playerIndex}">${escapeHtml(question.prompt || '정답을 고르세요')}</h3>
+        </div>
+        <button class="quiz-close-button" type="button" data-quiz-close>닫기</button>
+      </div>
+      <div class="quiz-question-body">
+        ${questionBody}
+      </div>
+      <div class="choice-grid">
+        ${question.choices.map((choice, index) => renderChoiceButton(choice, index, question, quizState)).join('')}
+      </div>
+      <div class="quiz-modal-foot">
+        <div class="feedback-line ${quizState.feedbackKind}">${escapeHtml(quizState.feedback)}</div>
+        <div class="quiz-actions ${quizState.answerLocked ? '' : 'is-hidden'}">
+          <div class="quiz-auto-progress" data-ref="quiz-auto-progress">${escapeHtml(autoProgressText)}</div>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function renderCoopQuizOverlay() {
+  if (!session || !isSharedBattleSession()) return;
+  const root = getBattleRoot(0);
+  if (isTabletFaceToFaceSession()) {
+    $$('[data-ref="tablet-player-quiz-layer"]', root).forEach((layer) => {
+      const playerIndex = getPlayerIndexFromElement(layer);
+      const quizState = getQuizState(playerIndex);
+      const isOpen = Boolean(quizState?.quizOpen);
+      layer.classList.toggle('is-hidden', !isOpen);
+      layer.innerHTML = isOpen ? buildQuizCardHtml(playerIndex) : '';
+      $(`.tablet-player-zone[data-player-index="${playerIndex}"]`, root)?.classList.toggle('is-quiz-open', isOpen);
+    });
+    return;
+  }
+  const overlay = $('[data-ref="coop-quiz-split-layer"]', root);
+  if (!overlay) return;
+  const hasOpenQuiz = session.playerQuizStates.some((quizState) => quizState.quizOpen);
+  overlay.classList.toggle('is-hidden', !hasOpenQuiz);
+  $$('.coop-player-control-card', root).forEach((card) => {
+    const playerIndex = getPlayerIndexFromElement(card);
+    card.classList.toggle('is-quiz-open', Boolean(getQuizState(playerIndex)?.quizOpen));
+  });
+  if (!hasOpenQuiz) {
+    overlay.innerHTML = '';
+    return;
+  }
+  overlay.innerHTML = `
+    <div class="coop-quiz-split-grid player-count-${session.players.length}">
+      ${session.players.map((player, index) => {
+        const quizState = getQuizState(index);
+        const isOpen = Boolean(quizState?.quizOpen);
+        return `
+          <section class="coop-quiz-split-slot ${isOpen ? 'is-active' : 'is-idle'}" data-player-index="${index}" aria-label="${escapeHtml(player.name)} 퀴즈 화면">
+            ${isOpen ? buildQuizCardHtml(index) : ''}
+          </section>
+        `;
+      }).join('')}
+    </div>
+  `;
+}
+
+function renderQuestion(battleIndex = currentBattleIndex) {
+  if (!session) return;
+  setBattleContext(battleIndex);
+  const quizState = getQuizState(battleIndex);
+  if (!quizState?.currentQuestion) return;
+  if (isSharedBattleSession()) {
+    renderCoopQuizOverlay();
+    return;
+  }
+  const root = getBattleRoot(battleIndex);
+  const layer = $('[data-ref="battle-quiz-layer"]', root);
+  if (!layer) return;
+  layer.classList.remove('is-hidden');
+  layer.innerHTML = buildQuizCardHtml(battleIndex);
+}
+
+function renderPlay() {
+  if (!session) return;
+  const tabletFace = isTabletFaceToFaceSession();
+  document.body.dataset.displayMode = session.displayMode;
+  document.body.dataset.displayModeChoice = session.displayModeChoice;
+  document.body.dataset.tabletFace = String(tabletFace);
+  elements.playTitle.textContent = `거북선 디펜스 · ${session.packLabel} · ${session.modeLabel} · ${session.displayModeLabel} · ${session.players.length}명`;
+  elements.questionArea.classList.add('is-hidden');
+  elements.questionArea.innerHTML = '';
+  updateTimer();
+}
+
+function calculateQuizReward(question, battle = session?.battle, quizState = battle) {
+  const difficulty = Math.max(1, Number(question?.difficulty) || 1);
+  const startedAtMs = quizState?.questionStartedAtMs || battle?.questionStartedAtMs;
+  const elapsedSec = startedAtMs
+    ? (Date.now() - startedAtMs) / 1000
+    : 20;
+  const quickBonus = elapsedSec <= 5
+    ? 100
+    : (elapsedSec <= 10 ? 60 : (elapsedSec <= 16 ? 30 : 0));
+  const nextCombo = battle.score.combo + 1;
+  const comboMultiplier = 1 + Math.min(QUIZ_COMBO_SCORE_MAX, nextCombo * QUIZ_COMBO_SCORE_STEP);
+  const basePoints = QUIZ_SCORE_BASE + difficulty * QUIZ_SCORE_DIFFICULTY_STEP + quickBonus;
+  return {
+    gold: 5 + difficulty * 2,
+    points: Math.round(basePoints * comboMultiplier),
+    quickBonus,
+    combo: nextCombo,
+    comboMultiplier
+  };
+}
+
+function applyQuizRewards(player, question, correct, quizState = session?.battle) {
+  const battle = session.battle;
+  battle.score.quizAttempts += 1;
+  if (!correct) {
+    battle.score.combo = 0;
+    player.streak = 0;
+    setBattleStatus('오답 · 콤보 초기화, 전장은 계속 진행', 'danger');
+    return { gold: 0, points: 0, quickBonus: 0, combo: 0 };
+  }
+  const reward = calculateQuizReward(question, battle, quizState);
+  battle.score.combo = reward.combo;
+  battle.score.maxCombo = Math.max(battle.score.maxCombo, battle.score.combo);
+  battle.score.points += reward.points;
+  battle.score.bonusPoints += reward.quickBonus;
+  battle.score.gold += reward.gold;
+  battle.score.quizSolved += 1;
+  player.score += reward.points;
+  player.streak += 1;
+  player.maxStreak = Math.max(player.maxStreak, player.streak);
+  if (reward.quickBonus > 0) player.quickAnswers += 1;
+  player.quizGold += reward.gold;
+  const comboText = battle.score.combo >= 2 ? ` · x${battle.score.combo} 콤보` : '';
+  const quickText = reward.quickBonus > 0 ? ` · 빠른 보너스 +${reward.quickBonus}` : '';
+  setBattleStatus(`정답 · +${reward.points}점${comboText}${quickText}`, 'success');
+  return reward;
+}
+
+function submitAnswer(choice, battleIndex = currentBattleIndex) {
+  if (!session) return;
+  setBattleContext(battleIndex);
+  const battle = session.battle;
+  const quizState = getQuizState(battleIndex);
+  if (quizState?.answerLocked || !quizState?.currentQuestion) return;
+  if (Date.now() >= session.deadlineAt) {
+    finishSession();
+    return;
+  }
+
+  session.activePlayerIndex = battleIndex;
+  quizState.answerLocked = true;
+  quizState.selectedChoice = choice;
+  const activePlayer = session.players[battleIndex] || getActivePlayer();
+  const correct = choice === String(quizState.currentQuestion.answer);
+  if (correct) {
+    activePlayer.correct += 1;
+    const reward = applyQuizRewards(activePlayer, quizState.currentQuestion, true, quizState);
+    quizState.feedback = `정답 · +${reward.points}점 · GOLD +${reward.gold}`;
+    quizState.feedbackKind = 'correct';
+  } else {
+    activePlayer.wrong += 1;
+    applyQuizRewards(activePlayer, quizState.currentQuestion, false, quizState);
+    quizState.feedback = '오답 · 보상 없음';
+    quizState.feedbackKind = 'wrong';
+  }
+  quizState.quizBurstAnswered = Math.min(
+    QUIZ_BURST_QUESTION_COUNT,
+    (Number(quizState.quizBurstAnswered) || 0) + 1
+  );
+
+  const root = isSharedBattleSession()
+    ? (
+      isTabletFaceToFaceSession()
+        ? $(`[data-ref="tablet-player-quiz-layer"][data-player-index="${battleIndex}"]`, getBattleRoot(0))
+        : $(`.coop-quiz-split-slot[data-player-index="${battleIndex}"]`, getBattleRoot(0))
+    ) || getBattleRoot(0)
+    : getBattleRoot(battleIndex);
+  const layer = isSharedBattleSession() ? root : $('[data-ref="battle-quiz-layer"]', root);
+  $$('.choice-button', layer || root).forEach((button) => {
+    button.disabled = true;
+    if (button.dataset.choice === String(quizState.currentQuestion.answer)) {
+      button.classList.add('is-correct');
+    } else if (button.dataset.choice === choice) {
+      button.classList.add('is-wrong');
+    }
+  });
+  const feedbackLine = $('.feedback-line', layer || root);
+  if (feedbackLine) {
+    feedbackLine.textContent = quizState.feedback;
+    feedbackLine.className = `feedback-line ${quizState.feedbackKind}`;
+  }
+  $('.quiz-actions', layer || root)?.classList.remove('is-hidden');
+  const autoProgress = $('[data-ref="quiz-auto-progress"]', layer || root);
+  if (autoProgress) autoProgress.textContent = getQuizAutoProgressText(quizState);
+  refreshBattleHud(battleIndex);
+  scheduleQuizAutoProgress(battleIndex);
+}
+
+function syncCanvasSize() {
+  if (!battleCanvas || !session) return;
+  const shell = battleCanvas.closest('.battlefield-shell');
+  const slot = shell?.parentElement;
+  if (shell && slot) {
+    const slotRect = slot.getBoundingClientRect();
+    const availableSize = Math.floor(Math.min(slotRect.width || 0, slotRect.height || 0));
+    if (availableSize > 0) {
+      shell.style.width = `${availableSize}px`;
+      shell.style.height = `${availableSize}px`;
+    }
+  }
+  const rect = battleCanvas.getBoundingClientRect();
+  const size = Math.max(120, Math.round(Math.min(rect.width || 0, rect.height || 0) || rect.width || rect.height || 0));
+  const width = size;
+  const height = size;
+  const dpr = Math.max(1, Math.min(2, window.devicePixelRatio || 1));
+  if (battleCanvas.width !== Math.round(width * dpr) || battleCanvas.height !== Math.round(height * dpr)) {
+    battleCanvas.width = Math.round(width * dpr);
+    battleCanvas.height = Math.round(height * dpr);
+    battleCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    session.battle.canvasWidth = width;
+    session.battle.canvasHeight = height;
+    session.battle.ship.x = width * 0.5;
+    session.battle.ship.y = height * 0.5;
+    session.battle.ship.radius = clamp(Math.min(width, height) * 0.07, 17, 44);
+  }
+}
+
+function syncAllCanvasSizes() {
+  if (!session) return;
+  session.battles.forEach((battle) => {
+    withBattleContext(battle.playerIndex, () => syncCanvasSize());
+  });
+}
+
+function getEnemySpawnPoint(radius) {
+  const battle = session.battle;
+  const width = battle.canvasWidth;
+  const height = battle.canvasHeight;
+  const offset = Math.max(48, Math.round(radius + 24));
+  const baseSide = Math.floor(battleRandom() * 4);
+  const side = (baseSide + (battle.playerIndex % 4)) % 4;
+  const rawLane = 0.08 + battleRandom() * 0.84;
+  const lane = battle.playerIndex % 2 === 0 ? rawLane : 1 - rawLane;
+  if (side === 0) return { x: lane * width, y: -offset };
+  if (side === 1) return { x: width + offset, y: lane * height };
+  if (side === 2) return { x: lane * width, y: height + offset };
+  return { x: -offset, y: lane * height };
+}
+
+function pickSpawnDefinition(maxTier, preferHigh = false) {
+  const defs = ENEMY_DEFINITIONS.filter((def) => def.tier <= maxTier);
+  const totalWeight = defs.reduce((sum, def) => (
+    sum + (preferHigh ? (1 + (def.tier - 1) * 0.42) : (1 + (maxTier - def.tier) * 0.35))
+  ), 0);
+  let roll = battleRandom() * totalWeight;
+  for (let index = 0; index < defs.length; index += 1) {
+    const def = defs[index];
+    roll -= preferHigh ? (1 + (def.tier - 1) * 0.42) : (1 + (maxTier - def.tier) * 0.35);
+    if (roll <= 0) return def;
+  }
+  return defs[defs.length - 1] || ENEMY_DEFINITIONS[0];
+}
+
+function createEnemyFromDefinition(def, elapsedSec, options = {}) {
+  const battle = session.battle;
+  const elite = options.elite === true;
+  const hardened = options.hardened === true;
+  const flowSpeedMul = Number(options.flowSpeedMul) > 0 ? Number(options.flowSpeedMul) : 1;
+  const roleConfig = getEnemyRoleConfig(def.tier);
+  const hpScale = 1 + Math.floor(elapsedSec / HP_GROWTH_STEP_SEC) * HP_GROWTH_PER_STEP;
+  const speedScale = 1 + Math.floor(elapsedSec / SPEED_GROWTH_STEP_SEC) * SPEED_GROWTH_PER_STEP;
+  const touchScale = 1 + Math.floor(elapsedSec / TOUCH_GROWTH_STEP_SEC) * TOUCH_GROWTH_PER_STEP;
+  const tierStrengthStep = def.tier - 1;
+  let hp = Math.round((def.baseHp + battleRandom() * 8) * hpScale);
+  let speed = (def.baseSpeed + battleRandom() * 14) * speedScale;
+  let touchDamage = Math.round(def.baseTouchDamage * touchScale);
+  let renderSize = def.baseSize + Math.floor(elapsedSec / SIZE_GROWTH_STEP_SEC);
+
+  if (elite) {
+    const variant = ENEMY_STRENGTH_VARIANTS.elite;
+    const tier10Def = ENEMY_DEFINITIONS[ENEMY_DEFINITIONS.length - 1];
+    const tier10Hp = tier10Def.baseHp * hpScale;
+    const tier10Speed = tier10Def.baseSpeed * speedScale;
+    const tier10TouchDamage = tier10Def.baseTouchDamage * touchScale;
+    hp = Math.round(Math.max(
+      hp * (variant.hpMulBase + tierStrengthStep * variant.hpMulTierStep),
+      tier10Hp * (variant.hpTier10MulBase + tierStrengthStep * variant.hpTier10MulStep)
+    ));
+    speed = Math.max(
+      speed * (variant.speedMulBase + tierStrengthStep * variant.speedMulTierStep),
+      tier10Speed * (variant.speedTier10MulBase + tierStrengthStep * variant.speedTier10MulStep)
+    );
+    touchDamage = Math.round(Math.max(
+      touchDamage * (variant.touchMulBase + tierStrengthStep * variant.touchMulTierStep),
+      tier10TouchDamage * (variant.touchTier10MulBase + tierStrengthStep * variant.touchTier10MulStep)
+    ));
+    renderSize = Math.round(
+      (renderSize + variant.renderSizeAdd) * (variant.renderSizeMulBase + tierStrengthStep * variant.renderSizeMulTierStep)
+    );
+  } else {
+    const earlyProgress = clamp(elapsedSec / EARLY_EASE_WINDOW_SEC, 0, 1);
+    const oneShotTargetHp = Math.max(1, Math.round(battle.ship.attackPower * (0.7 + def.tier * 0.06)));
+    hp = Math.max(1, Math.round(hp * earlyProgress + oneShotTargetHp * (1 - earlyProgress)));
+    speed *= (0.7 + 0.3 * earlyProgress);
+    touchDamage = Math.max(1, Math.round(touchDamage * (0.65 + 0.35 * earlyProgress)));
+    if (elapsedSec <= EARLY_ONE_SHOT_WINDOW_SEC && def.tier === 1 && battle.ship.attackPower <= SHIP_BASE_ATTACK_POWER) {
+      hp = Math.min(hp, Math.max(1, SHIP_BASE_ATTACK_POWER - 1));
+    }
+    if (def.tier > 1 && battle.ship.attackPower <= SHIP_BASE_ATTACK_POWER) {
+      hp = Math.max(hp, SHIP_BASE_ATTACK_POWER + 2);
+    }
+  }
+
+  if (hardened && !elite) {
+    const variant = ENEMY_STRENGTH_VARIANTS.hardened;
+    hp = Math.round(hp * (variant.hpMulBase + tierStrengthStep * variant.hpMulTierStep));
+    speed *= variant.speedMul;
+    touchDamage = Math.max(1, Math.round(touchDamage * (variant.touchMulBase + tierStrengthStep * variant.touchMulTierStep)));
+  }
+
+  if (roleConfig.role === 'swarm') {
+    hp = Math.max(12, Math.round(hp * 0.78));
+    speed *= 1.2;
+  } else if (roleConfig.role === 'charger') {
+    speed *= 1.12;
+    touchDamage = Math.max(1, Math.round(touchDamage * 1.18));
+  } else if (roleConfig.role === 'armored') {
+    hp = Math.max(26, Math.round(hp * 1.56));
+    speed *= 0.7;
+  } else if (roleConfig.role === 'splitter') {
+    speed *= 1.04;
+  } else if (roleConfig.role === 'commander' || roleConfig.role === 'summoner') {
+    hp = Math.max(28, Math.round(hp * 1.2));
+    speed *= 0.86;
+  }
+  speed *= flowSpeedMul;
+
+  const radius = Math.max(14, Math.round(renderSize * (elite ? 0.31 : 0.27)));
+  const spawnPoint = getEnemySpawnPoint(radius);
+  battle.spawnSerial += 1;
+  return {
+    id: `enemy-${battle.playerIndex}-${battle.spawnSerial}`,
+    tier: def.tier,
+    typeCode: def.code,
+    typeName: def.name,
+    role: roleConfig.role,
+    roleLabel: roleConfig.label,
+    elite,
+    hardened,
+    x: spawnPoint.x,
+    y: spawnPoint.y,
+    radius,
+    speed,
+    hp,
+    maxHp: hp,
+    touchDamage,
+    renderSize,
+    hasBeenVisible: false,
+    wobbleSeed: battleRandom() * Math.PI * 2
+  };
+}
+
+function shouldSpawnHardenedEnemy(elapsedSec, flow, def) {
+  if (elapsedSec < 45) return false;
+  const tierBonus = Math.max(0, def.tier - 1) * 0.008;
+  const elapsedBonus = clamp((elapsedSec - 45) / 360, 0, 1) * 0.18;
+  const flowBonus = Number(flow?.hardenedBonus) || 0;
+  const chance = clamp(0.045 + tierBonus + elapsedBonus + flowBonus, 0.01, 0.42);
+  return battleRandom() < chance;
+}
+
+function spawnEnemy(flow) {
+  const battle = session.battle;
+  const elapsedSec = battle.waves.elapsedSec;
+  const softCap = elapsedSec < 60
+    ? EARLY_SOFTCAP_T1
+    : (elapsedSec < 140 ? EARLY_SOFTCAP_T2 : (elapsedSec < 240 ? EARLY_SOFTCAP_T3 : 34));
+  const cap = Math.max(5, softCap + (Number(flow?.capBonus) || 0) + getLateWavePressure(elapsedSec));
+  if (battle.enemies.length >= cap) return;
+
+  const burstChance = clamp(0.16 + (elapsedSec / 960) + getLateWavePressure(elapsedSec) * 0.03, 0.16, 0.5);
+  const spawnCount = battleRandom() < burstChance ? 2 : 1;
+  for (let index = 0; index < spawnCount; index += 1) {
+    if (battle.enemies.length >= cap) break;
+    const eliteTier = getEliteUnlockedTier(elapsedSec);
+    const elite = shouldSpawnEliteEnemy(elapsedSec, eliteTier);
+    const maxTier = elite ? eliteTier : getUnlockedEnemyTier(elapsedSec);
+    const def = pickSpawnDefinition(maxTier, elite);
+    const enemy = createEnemyFromDefinition(def, elapsedSec, {
+      elite,
+      hardened: !elite && shouldSpawnHardenedEnemy(elapsedSec, flow, def),
+      flowSpeedMul: Number(flow?.speedMul) || 1
+    });
+    battle.enemies.push(enemy);
+  }
+}
+
+function getNearestEnemy() {
+  const battle = session.battle;
+  let nearest = null;
+  let nearestDist = Number.POSITIVE_INFINITY;
+  battle.enemies.forEach((enemy) => {
+    const dist = distance(battle.ship.x, battle.ship.y, enemy.x, enemy.y);
+    if (dist < nearestDist) {
+      nearest = enemy;
+      nearestDist = dist;
+    }
+  });
+  return nearest;
+}
+
+function getProjectileAngleOffsets(count) {
+  const total = Math.max(1, Number(count) || 1);
+  if (total <= 1) return [0];
+  const offsets = [0];
+  const maxOffset = total === 2 ? 0.065 : 0.13;
+  const sidePairs = Math.ceil((total - 1) / 2);
+  const step = maxOffset / Math.max(1, sidePairs);
+  for (let level = 1; offsets.length < total; level += 1) {
+    const offset = step * level;
+    if (offsets.length < total) offsets.push(offset);
+    if (offsets.length < total) offsets.push(-offset);
+  }
+  return offsets;
+}
+
+function shootAt(target) {
+  const battle = session.battle;
+  const count = Math.max(1, battle.ship.projectileCount);
+  const baseAngle = Math.atan2(target.y - battle.ship.y, target.x - battle.ship.x);
+  getProjectileAngleOffsets(count).forEach((offset) => {
+    const angle = baseAngle + offset;
+    battle.projectiles.push({
+      x: battle.ship.x + Math.cos(angle) * 34,
+      y: battle.ship.y + Math.sin(angle) * 34,
+      vx: Math.cos(angle) * 430,
+      vy: Math.sin(angle) * 430,
+      radius: 6.5 + Math.min(2, battle.ship.attackPowerLevel * 0.18),
+      damage: battle.ship.attackPower,
+      remainingHits: getShipPenetrationHits(),
+      explosionRadius: getShipExplosionRadius(),
+      explosionDamageRatio: getShipExplosionDamageRatio(),
+      hitEnemyIds: new Set()
+    });
+  });
+}
+
+function addKillReward(enemy) {
+  const battle = session.battle;
+  const tier = Math.max(1, Number(enemy?.tier) || 1);
+  const eliteBonus = enemy?.elite ? 2 : 0;
+  const isHardened = Boolean(enemy?.hardened && !enemy?.elite);
+  const waveBonus = Math.max(0, battle.waves.level - 1) * 3;
+  const roleBonus = ['commander', 'summoner', 'armored', 'adaptive'].includes(enemy?.role) ? 35 : 0;
+  const variantBonus = enemy?.elite ? (120 + tier * 12) : (isHardened ? 45 : 0);
+  const comboMultiplier = 1 + Math.min(KILL_SCORE_COMBO_MAX, battle.score.combo * KILL_SCORE_COMBO_STEP);
+  const points = Math.round((KILL_SCORE_BASE + tier * KILL_SCORE_TIER_STEP + waveBonus + roleBonus + variantBonus) * comboMultiplier);
+  battle.score.kills += 1;
+  battle.score.points += points;
+  battle.score.killPoints += points;
+  const owner = session.players[battle.playerIndex];
+  if (owner) owner.score += points;
+  if (isHardened) battle.score.hardenedKills += 1;
+  if (enemy?.elite) battle.score.eliteKills += 1;
+  battle.score.gold += 2 + tier + eliteBonus;
+  if (enemy?.elite || isHardened) {
+    setBattleStatus(`${enemy.elite ? '특수' : '강화'} 적 격퇴 · +${points}점`, 'success');
+  }
+  if (battle.score.kills % 10 === 0) {
+    const rushBonus = 180 + battle.waves.level * 12;
+    battle.score.points += rushBonus;
+    battle.score.bonusPoints += rushBonus;
+    battle.score.gold += 4;
+    setBattleStatus(`격퇴 러시 보너스 · +${rushBonus}점 · GOLD +4`, 'success');
+  }
+}
+
+function applyDamageToEnemy(enemy, rawDamage, fromExplosion = false) {
+  let damage = Math.max(1, Math.round(Number(rawDamage) || 0));
+  let reduction = 0;
+  if (enemy.role === 'armored') reduction += 0.34;
+  if (enemy.role === 'adaptive') reduction += 0.18;
+  if (enemy.hardened) reduction += 0.08;
+  if (fromExplosion && (enemy.role === 'splitter' || enemy.role === 'summoner')) {
+    damage = Math.round(damage * 1.28);
+  }
+  const finalDamage = Math.max(1, Math.round(damage * (1 - clamp(reduction, 0, 0.82))));
+  enemy.hp -= finalDamage;
+  return enemy.hp <= 0;
+}
+
+function applyProjectileExplosion(projectile, sourceEnemyId) {
+  const battle = session.battle;
+  const radius = Math.max(0, Number(projectile?.explosionRadius) || 0);
+  const damageRatio = clamp(Number(projectile?.explosionDamageRatio) || 0, 0, 1);
+  if (radius <= 0 || damageRatio <= 0) return;
+  const splashDamage = Math.max(1, Math.round((Number(projectile?.damage) || 0) * damageRatio));
+  for (let index = battle.enemies.length - 1; index >= 0; index -= 1) {
+    const enemy = battle.enemies[index];
+    if (!enemy || enemy.id === sourceEnemyId) continue;
+    if (distance(projectile.x, projectile.y, enemy.x, enemy.y) > radius + enemy.radius) continue;
+    if (applyDamageToEnemy(enemy, splashDamage, true)) {
+      battle.enemies.splice(index, 1);
+      addKillReward(enemy);
+    }
+  }
+}
+
+function triggerHullShockwave(touchEnemy, touchDamage) {
+  const battle = session.battle;
+  const hullLevel = Math.max(0, Number(battle.ship.hullLevel) || 0);
+  if (hullLevel <= 0) return;
+  const radius = battle.ship.radius + 34 + hullLevel * 9;
+  const baseDamage = Math.max(5, Math.round((Number(touchDamage) || 0) * 0.18 + hullLevel * 2.4));
+  for (let index = battle.enemies.length - 1; index >= 0; index -= 1) {
+    const enemy = battle.enemies[index];
+    if (!enemy || enemy.id === touchEnemy?.id) continue;
+    const dist = distance(battle.ship.x, battle.ship.y, enemy.x, enemy.y);
+    if (dist > radius + enemy.radius) continue;
+    const falloff = 1 - clamp(dist / Math.max(radius, 1), 0, 0.78);
+    const shockDamage = Math.max(1, Math.round(baseDamage * Math.max(0.3, falloff)));
+    const dx = enemy.x - battle.ship.x;
+    const dy = enemy.y - battle.ship.y;
+    const vectorLength = Math.max(0.0001, Math.hypot(dx, dy));
+    enemy.x += (dx / vectorLength) * (18 + hullLevel * 4);
+    enemy.y += (dy / vectorLength) * (18 + hullLevel * 4);
+    if (applyDamageToEnemy(enemy, shockDamage)) {
+      battle.enemies.splice(index, 1);
+      addKillReward(enemy);
+    }
+  }
+}
+
+function isShipRespawning(nowMs = performance.now()) {
+  return Boolean(session?.battle?.ship?.respawnUntilMs) && Number(session.battle.ship.respawnUntilMs) > Number(nowMs);
+}
+
+function isShipInvulnerable(nowMs = performance.now()) {
+  return Number(session?.battle?.ship?.invulnerableUntilMs || 0) > Number(nowMs);
+}
+
+function triggerShipRespawn(nowMs = performance.now()) {
+  const ship = session.battle.ship;
+  ship.hp = 0;
+  ship.deathCount += 1;
+  ship.respawnUntilMs = nowMs + BATTLESHIP_RESPAWN_DELAY_MS;
+  ship.invulnerableUntilMs = 0;
+  setBattleStatus(`거북선 격침 · ${Math.ceil(BATTLESHIP_RESPAWN_DELAY_MS / 1000)}초 재정비`, 'danger');
+}
+
+function completeShipRespawn(nowMs = performance.now()) {
+  const ship = session.battle.ship;
+  if (!ship.respawnUntilMs || ship.respawnUntilMs > nowMs) return;
+  ship.respawnUntilMs = 0;
+  ship.invulnerableUntilMs = nowMs + BATTLESHIP_RESPAWN_INVULN_MS;
+  ship.hp = ship.maxHp;
+  session.battle.nextShotMs = session.battle.worldElapsedMs + 300;
+  setBattleStatus('재정비 완료 · 다시 전투 참여', 'success');
+}
+
+function updateBattle(dtSec, nowMs) {
+  if (!session || session.endedAt) return;
+  if (Date.now() >= session.deadlineAt) {
+    finishSession();
+    return;
+  }
+  syncCanvasSize();
+  const battle = session.battle;
+  const ship = battle.ship;
+  const worldDtSec = battle.quizOpen ? dtSec * BATTLE_QUIZ_WORLD_SLOW_RATIO : dtSec;
+
+  completeShipRespawn(nowMs);
+  battle.worldElapsedMs += worldDtSec * 1000;
+  battle.waves.elapsedSec += worldDtSec;
+  battle.waves.level = 1 + Math.floor(battle.waves.elapsedSec / 20);
+  battle.spawnCooldownMs = Math.max(
+    SPAWN_MIN_COOLDOWN_MS,
+    SPAWN_START_COOLDOWN_MS - battle.waves.elapsedSec * SPAWN_DECAY_PER_SEC
+  );
+  battle.flow = getFlowState(battle.waves.elapsedSec);
+  const activeSpawnCooldown = clamp(
+    battle.spawnCooldownMs * battle.flow.spawnCooldownMul,
+    Math.max(280, SPAWN_MIN_COOLDOWN_MS * 0.55),
+    SPAWN_START_COOLDOWN_MS * 1.75
+  );
+  battle.nextSpawnMs -= worldDtSec * 1000;
+  while (battle.nextSpawnMs <= 0) {
+    spawnEnemy(battle.flow);
+    battle.nextSpawnMs += activeSpawnCooldown;
+  }
+
+  if (!isShipRespawning(nowMs) && battle.worldElapsedMs >= battle.nextShotMs) {
+    const nearestEnemy = getNearestEnemy();
+    if (nearestEnemy) {
+      shootAt(nearestEnemy);
+      battle.nextShotMs = battle.worldElapsedMs + getAttackCooldownMs();
+    }
+  }
+
+  for (let index = battle.projectiles.length - 1; index >= 0; index -= 1) {
+    const projectile = battle.projectiles[index];
+    projectile.x += projectile.vx * worldDtSec;
+    projectile.y += projectile.vy * worldDtSec;
+    if (
+      projectile.x < -30
+      || projectile.x > battle.canvasWidth + 30
+      || projectile.y < -30
+      || projectile.y > battle.canvasHeight + 30
+    ) {
+      battle.projectiles.splice(index, 1);
+      continue;
+    }
+    let hit = false;
+    for (let enemyIndex = battle.enemies.length - 1; enemyIndex >= 0; enemyIndex -= 1) {
+      const enemy = battle.enemies[enemyIndex];
+      if (projectile.hitEnemyIds instanceof Set && projectile.hitEnemyIds.has(enemy.id)) continue;
+      if (distance(projectile.x, projectile.y, enemy.x, enemy.y) > projectile.radius + enemy.radius) continue;
+      if (projectile.hitEnemyIds instanceof Set) projectile.hitEnemyIds.add(enemy.id);
+      const killed = applyDamageToEnemy(enemy, projectile.damage);
+      applyProjectileExplosion(projectile, enemy.id);
+      if (killed) {
+        battle.enemies.splice(enemyIndex, 1);
+        addKillReward(enemy);
+      }
+      if (projectile.remainingHits > 0) {
+        projectile.remainingHits -= 1;
+        projectile.damage = Math.max(1, Math.round(projectile.damage * 0.92));
+      } else {
+        hit = true;
+      }
+      break;
+    }
+    if (hit) battle.projectiles.splice(index, 1);
+  }
+
+  for (let index = battle.enemies.length - 1; index >= 0; index -= 1) {
+    const enemy = battle.enemies[index];
+    const baseAngle = Math.atan2(ship.y - enemy.y, ship.x - enemy.x);
+    let angle = baseAngle;
+    if (enemy.role === 'swarm' || enemy.role === 'splitter') {
+      angle += Math.sin(battle.worldElapsedMs * 0.004 + enemy.wobbleSeed) * 0.42;
+    }
+    let speedMultiplier = 1;
+    if (enemy.role === 'swarm') speedMultiplier *= 1.1;
+    if (enemy.role === 'armored') speedMultiplier *= 0.94;
+    if (enemy.role === 'charger' && distance(enemy.x, enemy.y, ship.x, ship.y) < 165) speedMultiplier *= 1.7;
+    enemy.x += Math.cos(angle) * enemy.speed * speedMultiplier * worldDtSec;
+    enemy.y += Math.sin(angle) * enemy.speed * speedMultiplier * worldDtSec;
+
+    const viewportMargin = enemy.radius + 6;
+    if (
+      enemy.x >= -viewportMargin
+      && enemy.x <= battle.canvasWidth + viewportMargin
+      && enemy.y >= -viewportMargin
+      && enemy.y <= battle.canvasHeight + viewportMargin
+    ) {
+      enemy.hasBeenVisible = true;
+    }
+    if (!enemy.hasBeenVisible) continue;
+    if (distance(enemy.x, enemy.y, ship.x, ship.y) > enemy.radius + ship.radius) continue;
+    if (isShipRespawning(nowMs) || isShipInvulnerable(nowMs)) continue;
+    const touchDamage = Math.max(
+      1,
+      Math.round(enemy.touchDamage * 3 * (1 - getShipDamageReductionRatio()))
+    );
+    ship.hp = Math.max(0, ship.hp - touchDamage);
+    battle.enemies.splice(index, 1);
+    triggerHullShockwave(enemy, touchDamage);
+    setBattleStatus(`거북선 피격 · HP -${touchDamage}`, 'danger');
+    if (ship.hp <= 0) triggerShipRespawn(nowMs);
+  }
+
+  refreshBattleHud();
+}
+
+function drawBackground(ctx, width, height, elapsedSec) {
+  const sky = ctx.createLinearGradient(0, 0, 0, height);
+  sky.addColorStop(0, '#d2f0ff');
+  sky.addColorStop(0.42, '#eefaff');
+  sky.addColorStop(0.43, '#6daed4');
+  sky.addColorStop(1, '#145f87');
+  ctx.fillStyle = sky;
+  ctx.fillRect(0, 0, width, height);
+
+  ctx.fillStyle = 'rgba(255,255,255,0.42)';
+  for (let y = height * 0.5; y < height; y += 24) {
+    const offset = (elapsedSec * 34 + y) % 64;
+    for (let x = -64; x < width + 64; x += 92) {
+      ctx.beginPath();
+      ctx.ellipse(x + offset, y, 28, 3.2, 0, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+}
+
+function getBattleVisualScale(battle = session?.battle) {
+  const width = Number(battle?.canvasWidth) || 0;
+  const height = Number(battle?.canvasHeight) || 0;
+  const mapSize = Math.min(width, height);
+  if (!mapSize) return 1;
+  return clamp(mapSize / 420, 0.46, 1);
+}
+
+function drawHpBar(ctx, x, y, width, hp, maxHp, color, height = 6) {
+  const ratio = maxHp > 0 ? clamp(hp / maxHp, 0, 1) : 0;
+  ctx.fillStyle = 'rgba(16, 24, 39, 0.28)';
+  ctx.fillRect(x, y, width, height);
+  ctx.fillStyle = color;
+  ctx.fillRect(x, y, width * ratio, height);
+}
+
+function getShipHpTone(ratio) {
+  if (ratio <= 0.22) return {
+    fill: '#dc2626',
+    glow: 'rgba(220,38,38,0.36)',
+    label: '위험'
+  };
+  if (ratio <= 0.48) return {
+    fill: '#f59e0b',
+    glow: 'rgba(245,158,11,0.3)',
+    label: '주의'
+  };
+  return {
+    fill: '#22c55e',
+    glow: 'rgba(34,197,94,0.28)',
+    label: '안정'
+  };
+}
+
+function drawShipHpGauge(ctx, ship, width) {
+  const ratio = ship.maxHp > 0 ? clamp(ship.hp / ship.maxHp, 0, 1) : 0;
+  const tone = getShipHpTone(ratio);
+  const visualScale = getBattleVisualScale();
+  const compact = width < 360;
+  const margin = Math.round(compact ? clamp(12 * visualScale, 7, 12) : 0);
+  const barWidth = compact
+    ? Math.max(88, width - margin * 2)
+    : clamp(width * 0.56, 240, 440);
+  const barHeight = Math.round(clamp(22 * visualScale, 10, 22));
+  const frameHeight = Math.round(clamp(52 * visualScale, 28, 52));
+  const frameRadius = Math.round(clamp(8 * visualScale, 5, 8));
+  const innerPad = Math.round(clamp(4 * visualScale, 2, 4));
+  const labelFontSize = Math.round(clamp(13 * visualScale, 8, 13));
+  const toneFontSize = Math.round(clamp(11 * visualScale, 7, 11));
+  const x = (width - barWidth) / 2;
+  const y = Math.round(clamp(15 * visualScale, 6, 15));
+  const fillWidth = Math.max(0, (barWidth - innerPad * 2) * ratio);
+  const textY = y + Math.round(clamp(14 * visualScale, 8, 14));
+  const barY = y + Math.round(clamp(25 * visualScale, 16, 25));
+  ctx.save();
+  ctx.shadowColor = tone.glow;
+  ctx.shadowBlur = (ratio <= 0.22 ? 18 : 10) * visualScale;
+  ctx.fillStyle = 'rgba(5, 18, 35, 0.82)';
+  ctx.beginPath();
+  ctx.roundRect(x, y, barWidth, frameHeight, frameRadius);
+  ctx.fill();
+  ctx.shadowBlur = 0;
+
+  ctx.fillStyle = '#e0f2fe';
+  ctx.font = `900 ${labelFontSize}px Apple SD Gothic Neo, Malgun Gothic, sans-serif`;
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'middle';
+  ctx.fillText('거북선 내구도', x + Math.round(clamp(14 * visualScale, 8, 14)), textY);
+  ctx.textAlign = 'right';
+  ctx.fillText(`${Math.max(0, Math.round(ship.hp))} / ${ship.maxHp}`, x + barWidth - Math.round(clamp(14 * visualScale, 8, 14)), textY);
+
+  ctx.fillStyle = 'rgba(226, 232, 240, 0.28)';
+  ctx.beginPath();
+  ctx.roundRect(x + innerPad, barY, barWidth - innerPad * 2, barHeight, Math.round(clamp(7 * visualScale, 4, 7)));
+  ctx.fill();
+  ctx.fillStyle = tone.fill;
+  ctx.beginPath();
+  ctx.roundRect(x + innerPad, barY, fillWidth, barHeight, Math.round(clamp(7 * visualScale, 4, 7)));
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(255,255,255,0.58)';
+  ctx.lineWidth = clamp(2 * visualScale, 1, 2);
+  ctx.beginPath();
+  ctx.roundRect(x + innerPad, barY, barWidth - innerPad * 2, barHeight, Math.round(clamp(7 * visualScale, 4, 7)));
+  ctx.stroke();
+  ctx.fillStyle = 'rgba(255,255,255,0.88)';
+  ctx.font = `900 ${toneFontSize}px Apple SD Gothic Neo, Malgun Gothic, sans-serif`;
+  ctx.textAlign = 'center';
+  ctx.fillText(tone.label, x + barWidth / 2, barY + barHeight / 2);
+  ctx.restore();
+}
+
+function drawShip(ctx, ship, nowMs) {
+  const invulnerable = isShipInvulnerable(nowMs);
+  const respawning = isShipRespawning(nowMs);
+  const mapSize = Math.min(session.battle.canvasWidth, session.battle.canvasHeight);
+  const longEdge = clamp(mapSize * 0.24, 34, 124);
+  const drawHeight = longEdge;
+  const drawWidth = drawHeight * (SHIP_SPRITE_CROP.width / SHIP_SPRITE_CROP.height);
+  ctx.save();
+  ctx.globalAlpha = respawning ? 0.26 : (invulnerable ? 0.62 + Math.sin(nowMs * 0.02) * 0.2 : 1);
+  ctx.shadowColor = 'rgba(9, 24, 56, 0.28)';
+  ctx.shadowBlur = 16;
+  ctx.shadowOffsetY = 8;
+  if (shipImage.complete && shipImage.naturalWidth) {
+    ctx.drawImage(
+      shipImage,
+      SHIP_SPRITE_CROP.x,
+      SHIP_SPRITE_CROP.y,
+      SHIP_SPRITE_CROP.width,
+      SHIP_SPRITE_CROP.height,
+      ship.x - drawWidth / 2,
+      ship.y - drawHeight / 2,
+      drawWidth,
+      drawHeight
+    );
+  } else {
+    ctx.fillStyle = '#0f766e';
+    ctx.beginPath();
+    ctx.ellipse(ship.x, ship.y, drawWidth * 0.52, drawHeight * 0.3, 0, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.restore();
+}
+
+function getDrawSizeByLongEdge(image, longEdge) {
+  const naturalWidth = Number(image?.naturalWidth) || 0;
+  const naturalHeight = Number(image?.naturalHeight) || 0;
+  if (!naturalWidth || !naturalHeight) return null;
+  const scale = Number(longEdge) / Math.max(naturalWidth, naturalHeight);
+  return {
+    width: naturalWidth * scale,
+    height: naturalHeight * scale
+  };
+}
+
+function getEnemyVariantVisual(enemy) {
+  if (enemy?.elite) {
+    const base = ENEMY_STRENGTH_VARIANTS.elite.visual;
+    const isMaxElite = getEliteUnlockedTier(session?.battle?.waves?.elapsedSec || 0) >= 10;
+    return {
+      ...base,
+      ...(isMaxElite ? base.max : null),
+      cacheKey: isMaxElite ? 'elite-max' : 'elite'
+    };
+  }
+  if (enemy?.hardened) {
+    return {
+      ...ENEMY_STRENGTH_VARIANTS.hardened.visual,
+      cacheKey: 'hardened'
+    };
+  }
+  return null;
+}
+
+function getEnemyVariantCacheKey(image, purpose, detail) {
+  const imageKey = image?.currentSrc || image?.src || `${image?.naturalWidth || 0}x${image?.naturalHeight || 0}`;
+  return `${imageKey}:${purpose}:${detail}`;
+}
+
+function getTintedEnemySprite(image, style) {
+  const tintLayers = Array.isArray(style?.tintLayers) ? style.tintLayers : [];
+  if (!image || !image.naturalWidth || !image.naturalHeight || !tintLayers.length) return image;
+  const cacheKey = getEnemyVariantCacheKey(image, 'tint', `${style.cacheKey}:${tintLayers.join('|')}`);
+  const cached = enemyVariantSpriteCache.get(cacheKey);
+  if (cached) return cached;
+
+  const offscreen = document.createElement('canvas');
+  offscreen.width = image.naturalWidth;
+  offscreen.height = image.naturalHeight;
+  const offCtx = offscreen.getContext('2d');
+  if (!offCtx) return image;
+  offCtx.drawImage(image, 0, 0);
+  tintLayers.forEach((fillStyle) => {
+    offCtx.globalCompositeOperation = 'source-atop';
+    offCtx.fillStyle = fillStyle;
+    offCtx.fillRect(0, 0, offscreen.width, offscreen.height);
+  });
+  offCtx.globalCompositeOperation = 'source-over';
+  enemyVariantSpriteCache.set(cacheKey, offscreen);
+  return offscreen;
+}
+
+function getEnemySilhouetteSprite(image, color) {
+  if (!image || !image.naturalWidth || !image.naturalHeight || !color) return null;
+  const cacheKey = getEnemyVariantCacheKey(image, 'silhouette', color);
+  const cached = enemyVariantSpriteCache.get(cacheKey);
+  if (cached) return cached;
+
+  const offscreen = document.createElement('canvas');
+  offscreen.width = image.naturalWidth;
+  offscreen.height = image.naturalHeight;
+  const offCtx = offscreen.getContext('2d');
+  if (!offCtx) return null;
+  offCtx.drawImage(image, 0, 0);
+  offCtx.globalCompositeOperation = 'source-in';
+  offCtx.fillStyle = color;
+  offCtx.fillRect(0, 0, offscreen.width, offscreen.height);
+  offCtx.globalCompositeOperation = 'source-over';
+  enemyVariantSpriteCache.set(cacheKey, offscreen);
+  return offscreen;
+}
+
+function drawEnemySilhouetteOutline(ctx, image, x, y, width, height, color, offset) {
+  const silhouette = getEnemySilhouetteSprite(image, color);
+  if (!silhouette) return;
+  const offsets = [
+    [-offset, 0],
+    [offset, 0],
+    [0, -offset],
+    [0, offset],
+    [-offset * 0.72, -offset * 0.72],
+    [offset * 0.72, -offset * 0.72],
+    [-offset * 0.72, offset * 0.72],
+    [offset * 0.72, offset * 0.72]
+  ];
+  offsets.forEach(([dx, dy]) => {
+    ctx.drawImage(silhouette, x + dx, y + dy, width, height);
+  });
+}
+
+function drawEnemyVariantAura(ctx, enemy, width, height, style) {
+  if (!style?.aura) return;
+  const pulse = (Math.sin(performance.now() * 0.008 + enemy.wobbleSeed) + 1) * 0.5;
+  ctx.save();
+  ctx.fillStyle = style.aura;
+  ctx.beginPath();
+  ctx.ellipse(
+    enemy.x,
+    enemy.y + height * 0.08,
+    width * (0.58 + pulse * 0.08),
+    height * (0.48 + pulse * 0.06),
+    0,
+    0,
+    Math.PI * 2
+  );
+  ctx.fill();
+  ctx.restore();
+}
+
+function getEnemyHpColor(enemy, variantStyle) {
+  if (variantStyle?.hpColor) return variantStyle.hpColor;
+  if (enemy.role === 'commander') return '#f59e0b';
+  if (enemy.role === 'summoner') return '#60a5fa';
+  if (enemy.role === 'charger') return '#fb923c';
+  if (enemy.role === 'armored' || enemy.role === 'adaptive') return '#a78bfa';
+  if (enemy.role === 'splitter') return '#fbbf24';
+  return '#f97316';
+}
+
+function getEnemyBadge(enemy, variantStyle) {
+  if (variantStyle?.label) {
+    return {
+      text: variantStyle.label,
+      fill: variantStyle.fill,
+      stroke: variantStyle.stroke,
+      color: variantStyle.color
+    };
+  }
+  if (enemy.role === 'commander') {
+    return { text: '지휘', fill: 'rgba(120, 53, 15, 0.9)', stroke: 'rgba(253, 230, 138, 0.58)', color: '#fef3c7' };
+  }
+  if (enemy.role === 'summoner') {
+    return { text: '소환', fill: 'rgba(30, 58, 138, 0.9)', stroke: 'rgba(191, 219, 254, 0.52)', color: '#dbeafe' };
+  }
+  if (enemy.role === 'charger') {
+    return { text: '돌진', fill: 'rgba(124, 45, 18, 0.88)', stroke: 'rgba(254, 215, 170, 0.48)', color: '#ffedd5' };
+  }
+  return { text: '', fill: '', stroke: '', color: '' };
+}
+
+function drawEnemy(ctx, enemy) {
+  const image = enemyImages.get(enemy.tier);
+  const variantStyle = getEnemyVariantVisual(enemy);
+  const visualScale = getBattleVisualScale();
+  const enemyDrawScale = clamp(visualScale * 1.1, 0.55, 1);
+  const visualRadius = Math.max(8, enemy.radius * enemyDrawScale);
+  const spriteSize = image?.complete && image.naturalWidth
+    ? getDrawSizeByLongEdge(image, enemy.renderSize * enemyDrawScale)
+    : null;
+  const drawWidth = spriteSize?.width || enemy.renderSize * enemyDrawScale;
+  const drawHeight = spriteSize?.height || enemy.renderSize * enemyDrawScale;
+  const drawX = enemy.x - drawWidth / 2;
+  const drawY = enemy.y - drawHeight / 2;
+  drawEnemyVariantAura(ctx, enemy, drawWidth, drawHeight, variantStyle);
+
+  ctx.save();
+  ctx.shadowColor = 'rgba(9, 24, 56, 0.24)';
+  ctx.shadowBlur = (variantStyle ? 18 : 10) * enemyDrawScale;
+  ctx.shadowOffsetY = 6 * enemyDrawScale;
+  if (variantStyle?.shadowColor) {
+    ctx.filter = `drop-shadow(0 0 ${(enemy.elite ? 16 : 11) * enemyDrawScale}px ${variantStyle.shadowColor})`;
+  }
+  if (image?.complete && image.naturalWidth) {
+    if (variantStyle?.outerOutline) {
+      drawEnemySilhouetteOutline(ctx, image, drawX, drawY, drawWidth, drawHeight, variantStyle.outerOutline, Math.max(1.5, drawWidth * 0.055));
+    }
+    if (variantStyle?.outline) {
+      drawEnemySilhouetteOutline(ctx, image, drawX, drawY, drawWidth, drawHeight, variantStyle.outline, Math.max(1, drawWidth * 0.033));
+    }
+    const renderImage = variantStyle ? getTintedEnemySprite(image, variantStyle) : image;
+    ctx.drawImage(renderImage, drawX, drawY, drawWidth, drawHeight);
+  } else {
+    ctx.fillStyle = variantStyle?.fallbackFill || '#be123c';
+    ctx.strokeStyle = variantStyle?.outline || 'rgba(255,255,255,0.35)';
+    ctx.lineWidth = variantStyle ? 4 : 2;
+    ctx.beginPath();
+    ctx.arc(enemy.x, enemy.y, visualRadius, 0, Math.PI * 2);
+    ctx.fill();
+    if (variantStyle) ctx.stroke();
+  }
+  ctx.restore();
+
+  const barWidth = Math.round(clamp(drawWidth * 0.84, 24, 44));
+  const barHeight = Math.round(clamp(6 * enemyDrawScale, 3, 6));
+  const hpColor = getEnemyHpColor(enemy, variantStyle);
+  drawHpBar(ctx, enemy.x - barWidth / 2, enemy.y - visualRadius - Math.round(13 * enemyDrawScale), barWidth, enemy.hp, enemy.maxHp, hpColor, barHeight);
+  const badge = getEnemyBadge(enemy, variantStyle);
+  if (badge.text) {
+    ctx.save();
+    const badgeFontSize = Math.round(clamp(10 * enemyDrawScale, 7, 10));
+    const badgeHeight = Math.round(clamp(14 * enemyDrawScale, 10, 14));
+    const badgeRadius = Math.round(clamp(7 * enemyDrawScale, 5, 7));
+    ctx.font = `800 ${badgeFontSize}px Apple SD Gothic Neo, Malgun Gothic, sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    const labelWidth = Math.max(Math.round(24 * enemyDrawScale), ctx.measureText(badge.text).width + Math.round(12 * enemyDrawScale));
+    const labelY = enemy.y - visualRadius - Math.round(30 * enemyDrawScale);
+    ctx.fillStyle = badge.fill || 'rgba(15,23,42,0.82)';
+    ctx.beginPath();
+    ctx.roundRect(enemy.x - labelWidth / 2, labelY, labelWidth, badgeHeight, badgeRadius);
+    ctx.fill();
+    if (badge.stroke) {
+      ctx.strokeStyle = badge.stroke;
+      ctx.lineWidth = clamp(enemyDrawScale, 0.75, 1);
+      ctx.stroke();
+    }
+    ctx.fillStyle = badge.color || '#ffffff';
+    ctx.fillText(badge.text, enemy.x, labelY + badgeHeight / 2);
+    ctx.restore();
+  }
+}
+
+function drawBattle() {
+  if (!session || !battleCanvas || !battleCtx) return;
+  syncCanvasSize();
+  const ctx = battleCtx;
+  const battle = session.battle;
+  const width = battle.canvasWidth;
+  const height = battle.canvasHeight;
+  ctx.clearRect(0, 0, width, height);
+  drawBackground(ctx, width, height, battle.waves.elapsedSec);
+
+  drawShip(ctx, battle.ship, performance.now());
+
+  battle.enemies.forEach((enemy) => drawEnemy(ctx, enemy));
+
+  ctx.save();
+  battle.projectiles.forEach((projectile) => {
+    const hasExplosion = projectile.explosionRadius > 0;
+    ctx.fillStyle = hasExplosion ? '#fb923c' : '#f9e27d';
+    ctx.strokeStyle = hasExplosion ? 'rgba(124,45,18,0.68)' : 'rgba(120,53,15,0.55)';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(projectile.x, projectile.y, projectile.radius, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+  });
+  ctx.restore();
+
+  if (!isTabletFaceToFaceSession()) {
+    drawShipHpGauge(ctx, battle.ship, width);
+
+    ctx.save();
+    const overlayScale = getBattleVisualScale(battle);
+    const maxTier = getUnlockedEnemyTier(battle.waves.elapsedSec);
+    const eliteTier = getEliteUnlockedTier(battle.waves.elapsedSec);
+    const overlayX = Math.round(clamp(12 * overlayScale, 6, 12));
+    const tinyMap = width < 190;
+    const overlayY = tinyMap ? Math.round(clamp(39 * overlayScale, 36, 42)) : Math.round(clamp(74 * overlayScale, 42, 74));
+    const overlayWidth = tinyMap
+      ? Math.min(width - overlayX * 2, 92)
+      : Math.min(width - overlayX * 2, Math.round(clamp(168 * overlayScale, 104, 168)));
+    const overlayHeight = tinyMap ? 24 : Math.round(clamp(54 * overlayScale, 34, 54));
+    const overlayRadius = Math.round(clamp(8 * overlayScale, 5, 8));
+    ctx.fillStyle = 'rgba(8, 19, 43, 0.78)';
+    ctx.beginPath();
+    ctx.roundRect(overlayX, overlayY, overlayWidth, overlayHeight, overlayRadius);
+    ctx.fill();
+    ctx.fillStyle = '#fff5d6';
+    if (tinyMap) {
+      ctx.font = '900 7px Apple SD Gothic Neo, Malgun Gothic, sans-serif';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(
+        `Lv.${battle.waves.level} · 01-${String(maxTier).padStart(2, '0')}${eliteTier ? ` · 특${String(eliteTier).padStart(2, '0')}` : ''}`,
+        overlayX + 6,
+        overlayY + overlayHeight / 2
+      );
+    } else {
+      ctx.font = `900 ${Math.round(clamp(14 * overlayScale, 8, 14))}px Apple SD Gothic Neo, Malgun Gothic, sans-serif`;
+      ctx.fillText(`Wave Lv.${battle.waves.level}`, overlayX + Math.round(clamp(12 * overlayScale, 7, 12)), overlayY + Math.round(clamp(20 * overlayScale, 13, 20)));
+      ctx.font = `800 ${Math.round(clamp(12 * overlayScale, 7, 12))}px Apple SD Gothic Neo, Malgun Gothic, sans-serif`;
+      ctx.fillText(`적 01-${String(maxTier).padStart(2, '0')}${eliteTier ? ` · 특수 ${String(eliteTier).padStart(2, '0')}` : ''}`, overlayX + Math.round(clamp(12 * overlayScale, 7, 12)), overlayY + Math.round(clamp(40 * overlayScale, 25, 40)));
+    }
+    ctx.restore();
+  }
+}
+
+function battleFrame(nowMs) {
+  if (!session || session.endedAt) return;
+  session.battles.forEach((battle) => {
+    withBattleContext(battle.playerIndex, () => {
+      const dtMs = Math.min(50, Math.max(0, nowMs - battle.lastFrameMs));
+      battle.lastFrameMs = nowMs;
+      updateBattle(dtMs / 1000, nowMs);
+      drawBattle();
+    });
+  });
+  if (!session || session.endedAt) return;
+  battleAnimationId = window.requestAnimationFrame(battleFrame);
+}
+
+function startBattleLoop() {
+  if (!session) return;
+  stopBattleLoop();
+  const nowMs = performance.now();
+  session.battles.forEach((battle) => {
+    battle.running = true;
+    battle.lastFrameMs = nowMs;
+  });
+  battleAnimationId = window.requestAnimationFrame(battleFrame);
+}
+
+function stopBattleLoop() {
+  if (battleAnimationId) {
+    window.cancelAnimationFrame(battleAnimationId);
+    battleAnimationId = 0;
+  }
+  if (session?.battles) {
+    session.battles.forEach((battle) => {
+      battle.running = false;
+    });
+  }
+}
+
+function updateTimer() {
+  if (!session) return;
+  const remainingMs = session.deadlineAt - Date.now();
+  const clock = formatClock(remainingMs / 1000);
+  elements.timerPill.textContent = clock;
+  if (remainingMs <= 0) finishSession();
+}
+
+function startTimer() {
+  updateTimer();
+  session.timerId = window.setInterval(updateTimer, 200);
+}
+
+async function startSelectedGame() {
+  setSetupMessage();
+  enforceDisplayModeRules();
+  if (!selectedMinutes) {
+    setSetupMessage('플레이 시간을 선택하세요.', 'error');
+    return;
+  }
+  elements.startButton.disabled = true;
+  try {
+    const questions = await loadPack(selectedPackId);
+    session = buildSession(questions);
+    currentBattleIndex = 0;
+    nextQuestion();
+    showScreen('play');
+    renderStageShell();
+    renderPlay();
+    startTimer();
+    startBattleLoop();
+  } catch (error) {
+    setSetupMessage(error instanceof Error ? error.message : '시작할 수 없습니다.', 'error');
+  } finally {
+    updateSetupSummary({ keepError: true });
+  }
+}
+
+function stopSessionTimer() {
+  if (session?.timerId) {
+    window.clearInterval(session.timerId);
+    session.timerId = null;
+  }
+  if (session?.answerTimerId) {
+    window.clearTimeout(session.answerTimerId);
+    session.answerTimerId = 0;
+  }
+}
+
+function summarizeSession() {
+  const battles = Array.isArray(session.battles) && session.battles.length ? session.battles : [session.battle];
+  const totalCorrect = session.players.reduce((sum, player) => sum + player.correct, 0);
+  const totalWrong = session.players.reduce((sum, player) => sum + player.wrong, 0);
+  const playedMs = Math.max(0, (session.endedAt || new Date()).getTime() - session.startedAt.getTime());
+  const hpCurrent = battles.reduce((sum, battle) => sum + Math.max(0, Math.round(battle.ship.hp)), 0);
+  const hpMax = battles.reduce((sum, battle) => sum + battle.ship.maxHp, 0);
+  const waveBonus = battles.reduce((sum, battle) => sum + battle.waves.level * 60, 0);
+  const battleScore = battles.reduce((sum, battle) => sum + battle.score.points, 0);
+  const finalScore = battleScore + waveBonus;
+  return {
+    totalCorrect,
+    totalWrong,
+    hpCurrent,
+    hpMax,
+    hp: `${hpCurrent}/${hpMax}`,
+    defeated: battles.reduce((sum, battle) => sum + battle.score.kills, 0),
+    score: finalScore,
+    battleScore,
+    killScore: battles.reduce((sum, battle) => sum + battle.score.killPoints, 0),
+    waveBonus,
+    bonusPoints: battles.reduce((sum, battle) => sum + battle.score.bonusPoints, 0),
+    maxCombo: battles.reduce((max, battle) => Math.max(max, battle.score.maxCombo), 0),
+    eliteKills: battles.reduce((sum, battle) => sum + battle.score.eliteKills, 0),
+    hardenedKills: battles.reduce((sum, battle) => sum + battle.score.hardenedKills, 0),
+    gold: battles.reduce((sum, battle) => sum + battle.score.gold, 0),
+    wave: battles.reduce((max, battle) => Math.max(max, battle.waves.level), 1),
+    deaths: battles.reduce((sum, battle) => sum + battle.ship.deathCount, 0),
+    playedSec: Math.round(playedMs / 1000)
+  };
+}
+
+function renderResult() {
+  if (!session) return;
+  const summary = summarizeSession();
+  const totalAttempts = summary.totalCorrect + summary.totalWrong;
+  const accuracyText = formatAccuracy(summary.totalCorrect, totalAttempts);
+  const targetScore = Math.max(1, session.minutes) * 1800;
+  const resultRank = summary.hp.startsWith('0/')
+    ? '방어 실패'
+    : (summary.score >= targetScore * 1.7 ? '완전 방어' : (summary.score >= targetScore ? '방어 성공' : '전투 종료'));
+  const endedText = session.endedAt.toLocaleString('ko-KR', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit'
+  });
+  const endedClock = session.endedAt.toLocaleTimeString('ko-KR', {
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit'
+  });
+  const isMultiPlayerResult = session.players.length > 1;
+  const isTabletFaceResult = isTabletFaceToFaceSession();
+  const resultModal = $('.result-modal', elements.resultScreen);
+  resultModal?.classList.toggle('is-split-result', isMultiPlayerResult);
+  resultModal?.classList.toggle('is-tablet-face-result', isTabletFaceResult);
+  elements.resultTitle.textContent = isSharedBattleSession()
+    ? '함께 풀기 전투 결과'
+    : (isMultiPlayerResult ? '플레이어별 전투 결과' : resultRank);
+  elements.resultSubtitle.textContent = isMultiPlayerResult
+    ? `${session.packLabel} · ${session.modeLabel} · ${session.displayModeLabel} · ${session.players.length}명 · ${session.minutes}분 · 종료 ${endedText}`
+    : `${session.packLabel} · ${session.modeLabel} · ${session.displayModeLabel} · ${session.players.length}명 · ${formatClock(summary.playedSec)}`;
+  elements.resultTimePill.textContent = '결과 확정';
+  elements.resultGrid.className = isMultiPlayerResult ? 'result-grid result-session-grid is-hidden' : 'result-grid';
+  if (isMultiPlayerResult) {
+    elements.resultGrid.innerHTML = '';
+  } else {
+    elements.resultGrid.innerHTML = `
+    <div class="result-battle-card">
+      <div class="result-battle-main">
+        <b>최종 점수</b>
+        <strong>${escapeHtml(summary.score.toLocaleString('ko-KR'))}</strong>
+        <span>전투 ${escapeHtml(summary.battleScore.toLocaleString('ko-KR'))} · Wave 보너스 ${escapeHtml(summary.waveBonus)}</span>
+      </div>
+    </div>
+    ${[
+    ['격퇴 수', `${summary.defeated}`, 'is-kill'],
+    ['최고 웨이브', `Lv.${summary.wave}`, 'is-wave'],
+    ['최고 콤보', `x${summary.maxCombo}`, ''],
+    ['정답률(정답수/문제수)', accuracyText, ''],
+    ['선택 시간', `${session.minutes}분`, ''],
+    ['종료 시각', endedText, 'is-time']
+  ].map(([label, value, tone]) => `
+    <div class="result-tile ${tone}">
+      <b>${escapeHtml(label)}</b>
+      <span>${escapeHtml(value)}</span>
+    </div>
+  `).join('')}
+  `;
+  }
+
+  const playerResults = session.players.map((player, index) => {
+    const attempts = player.correct + player.wrong;
+    const playerAccuracy = attempts > 0 ? Math.round((player.correct / attempts) * 100) : 0;
+    const playerAccuracyText = formatAccuracy(player.correct, attempts);
+    const battle = isSharedBattleSession() ? session.battles[0] : session.battles[index];
+    const battleKills = battle?.score?.kills || 0;
+    const battleScore = battle?.score?.points || player.score;
+    const waveBonus = (battle?.waves?.level || 1) * 60;
+    const finalScore = battleScore + waveBonus;
+    return {
+      index,
+      player,
+      attempts,
+      playerAccuracy,
+      playerAccuracyText,
+      battle,
+      battleKills,
+      battleScore,
+      waveBonus,
+      finalScore
+    };
+  });
+  const orderedPlayerResults = isTabletFaceResult
+    ? [playerResults[1], playerResults[0]].filter(Boolean)
+    : playerResults;
+  const tabletFaceCenterHtml = isTabletFaceResult ? `
+    <div class="tablet-face-result-center" aria-label="공유 전투 결과">
+      <div>
+        <span>전투 종료</span>
+        <b>${escapeHtml(resultRank)}</b>
+      </div>
+      <dl>
+        <div><dt>팀 점수</dt><dd>${escapeHtml(summary.score.toLocaleString('ko-KR'))}</dd></div>
+        <div><dt>격퇴</dt><dd>${escapeHtml(String(summary.defeated))}</dd></div>
+        <div><dt>정답률</dt><dd>${escapeHtml(accuracyText)}</dd></div>
+        <div><dt>GOLD</dt><dd>${escapeHtml(summary.gold.toLocaleString('ko-KR'))}</dd></div>
+        <div><dt>종료</dt><dd>${escapeHtml(endedClock)}</dd></div>
+      </dl>
+    </div>
+  ` : '';
+  elements.playerResults.className = `player-results player-count-${session.players.length}${isMultiPlayerResult ? ' is-primary-results' : ''}${isTabletFaceResult ? ' is-tablet-face-results' : ''}`;
+  elements.playerResults.innerHTML = `
+    ${isMultiPlayerResult ? '' : '<div class="player-results-heading">플레이어 전투 기록</div>'}
+    ${orderedPlayerResults.map((result, orderIndex) => {
+    const { player, index, playerAccuracy, playerAccuracyText, battle, battleKills, battleScore, waveBonus, finalScore } = result;
+    const maxCombo = battle?.score?.maxCombo || 0;
+    return `
+    ${isTabletFaceResult && orderIndex === 1 ? tabletFaceCenterHtml : ''}
+    <div class="player-result-card${isTabletFaceResult ? ' tablet-face-card' : ''}${isTabletFaceResult && index === 1 ? ' is-flipped' : ''}">
+      <div class="player-card-head">
+        <span>${index + 1}P</span>
+        <strong>${escapeHtml(player.name)}</strong>
+      </div>
+      <div class="player-card-session">선택 ${session.minutes}분 · 종료 ${escapeHtml(endedClock)}</div>
+      <div class="player-scoreplate">
+        <b>최종 점수</b>
+        <strong>${finalScore.toLocaleString('ko-KR')}</strong>
+        <span>전투 ${battleScore.toLocaleString('ko-KR')} · Wave ${waveBonus}</span>
+      </div>
+      <div class="player-card-main">
+        <div><b>${battleKills}</b><span>격퇴</span></div>
+        <div><b>${escapeHtml(playerAccuracyText)}</b><span>정답률(정답수/문제수)</span></div>
+        <div><b>${player.maxStreak}</b><span>최대 연속</span></div>
+        <div><b>x${maxCombo}</b><span>최고 콤보</span></div>
+      </div>
+      <div class="player-accuracy-meter"><i style="width: ${playerAccuracy}%"></i></div>
+      <div class="player-reward-line">빠른 정답 ${player.quickAnswers}회 · GOLD ${player.quizGold}</div>
+    </div>
+    `;
+  }).join('')}
+  `;
+}
+
+function finishSession() {
+  if (!session || session.endedAt) return;
+  stopSessionTimer();
+  stopBattleLoop();
+  session.endedAt = new Date();
+  session.quizOpen = false;
+  session.battles.forEach((battle) => {
+    clearQuizAutoAdvance(battle);
+    battle.quizOpen = false;
+  });
+  session.playerQuizStates?.forEach((quizState) => {
+    clearQuizAutoAdvance(quizState);
+    quizState.quizOpen = false;
+  });
+  elements.timerPill.textContent = '00:00';
+  elements.resultTimePill.textContent = '결과 확정';
+  elements.questionArea.classList.add('is-hidden');
+  elements.questionArea.innerHTML = '';
+  $$('.battle-quiz-layer', elements.gameStage).forEach((layer) => {
+    layer.classList.add('is-hidden');
+    layer.innerHTML = '';
+  });
+  $$('.coop-quiz-overlay', elements.gameStage).forEach((layer) => {
+    layer.classList.add('is-hidden');
+    layer.innerHTML = '';
+  });
+  $$('[data-ref="coop-quiz-split-layer"]', elements.gameStage).forEach((layer) => {
+    layer.classList.add('is-hidden');
+    layer.innerHTML = '';
+  });
+  $$('[data-ref="tablet-player-quiz-layer"]', elements.gameStage).forEach((layer) => {
+    layer.classList.add('is-hidden');
+    layer.innerHTML = '';
+  });
+  $$('.coop-player-control-card', elements.gameStage).forEach((card) => {
+    card.classList.remove('is-quiz-open');
+  });
+  $$('.tablet-player-zone', elements.gameStage).forEach((zone) => {
+    zone.classList.remove('is-quiz-open');
+  });
+  $$('.choice-button', elements.questionArea).forEach((button) => {
+    button.disabled = true;
+  });
+  renderResult();
+  showScreen('result');
+}
+
+function abandonSession() {
+  stopSessionTimer();
+  stopBattleLoop();
+  session?.battles?.forEach(clearQuizAutoAdvance);
+  session?.playerQuizStates?.forEach(clearQuizAutoAdvance);
+  session = null;
+  battleCanvas = null;
+  battleCtx = null;
+  battleViews = [];
+  currentBattleIndex = 0;
+  elements.questionArea.classList.add('is-hidden');
+  elements.questionArea.innerHTML = '';
+  $$('.battle-quiz-layer', elements.gameStage).forEach((layer) => {
+    layer.classList.add('is-hidden');
+    layer.innerHTML = '';
+  });
+  $$('.coop-quiz-overlay', elements.gameStage).forEach((layer) => {
+    layer.classList.add('is-hidden');
+    layer.innerHTML = '';
+  });
+  $$('[data-ref="coop-quiz-split-layer"]', elements.gameStage).forEach((layer) => {
+    layer.classList.add('is-hidden');
+    layer.innerHTML = '';
+  });
+  $$('[data-ref="tablet-player-quiz-layer"]', elements.gameStage).forEach((layer) => {
+    layer.classList.add('is-hidden');
+    layer.innerHTML = '';
+  });
+  $$('.coop-player-control-card', elements.gameStage).forEach((card) => {
+    card.classList.remove('is-quiz-open');
+  });
+  $$('.tablet-player-zone', elements.gameStage).forEach((zone) => {
+    zone.classList.remove('is-quiz-open');
+  });
+  showScreen('setup');
+  updateSetupSummary();
+}
+
+function bindEvents() {
+  elements.quizPack.addEventListener('change', () => {
+    selectedPackId = elements.quizPack.value;
+    updateSetupSummary();
+  });
+
+  elements.playMinutes.addEventListener('change', () => {
+    selectedMinutes = Number(elements.playMinutes.value) || null;
+    updateSetupSummary();
+  });
+
+  elements.modeOptions.addEventListener('click', (event) => {
+    const button = event.target.closest('[data-mode]');
+    if (!button) return;
+    if (button.disabled) return;
+    selectedMode = PLAY_MODES.some((mode) => mode.id === button.dataset.mode)
+      ? button.dataset.mode
+      : 'solo';
+    updateSetupSummary();
+  });
+
+  elements.displayModeToggle?.addEventListener('click', selectNextDisplayMode);
+
+  elements.tabletPromoButton?.addEventListener('click', () => {
+    selectedDisplayMode = 'tablet';
+    selectedMode = 'coop';
+    selectedPlayers = 2;
+    updateSetupSummary();
+  });
+
+  elements.playerOptions.addEventListener('click', (event) => {
+    const button = event.target.closest('[data-players]');
+    if (!button) return;
+    if (button.disabled) return;
+    selectedPlayers = Number(button.dataset.players) || 1;
+    updateSetupSummary();
+  });
+
+  elements.startButton.addEventListener('click', startSelectedGame);
+  elements.exitButton.addEventListener('click', abandonSession);
+  elements.backSetupButton.addEventListener('click', abandonSession);
+  elements.restartSameButton.addEventListener('click', async () => {
+    stopSessionTimer();
+    stopBattleLoop();
+    session = null;
+    battleCanvas = null;
+    battleCtx = null;
+    battleViews = [];
+    currentBattleIndex = 0;
+    showScreen('setup');
+    await startSelectedGame();
+  });
+  elements.gameStage.addEventListener('pointerdown', handleBattlePointerDown);
+  window.addEventListener('resize', () => {
+    syncAllCanvasSizes();
+    if (!session) updateSetupSummary();
+    if (session) {
+      session.battles.forEach((battle) => {
+        withBattleContext(battle.playerIndex, () => drawBattle());
+      });
+    }
+  }, { passive: true });
+}
+
+window.__KNOLQUIZ_TEST__ = {
+  finishNow() {
+    if (!session) return false;
+    session.deadlineAt = Date.now() - 1;
+    updateTimer();
+    return true;
+  },
+  forceEnemyTouch(playerIndex = currentBattleIndex) {
+    if (!session) return false;
+    setBattleContext(playerIndex);
+    const battle = session.battle;
+    battle.enemies.push({
+      id: `test-${Date.now()}`,
+      tier: 1,
+      typeCode: '01',
+      typeName: '도깨비불',
+      role: 'swarm',
+      roleLabel: '무리형',
+      elite: false,
+      hardened: false,
+      x: battle.ship.x + battle.ship.radius,
+      y: battle.ship.y,
+      radius: 22,
+      speed: 0,
+      hp: 10,
+      maxHp: 10,
+      touchDamage: 8,
+      renderSize: 52,
+      hasBeenVisible: true,
+      wobbleSeed: 0
+    });
+    return true;
+  },
+  spawnEnemyVariant(variant = 'hardened', tier = 5, playerIndex = currentBattleIndex) {
+    if (!session) return false;
+    setBattleContext(playerIndex);
+    const battle = session.battle;
+    const normalizedVariant = String(variant || '').trim();
+    const safeTier = clamp(Number(tier) || 5, 1, ENEMY_DEFINITIONS.length);
+    const def = ENEMY_DEFINITIONS.find((item) => item.tier === safeTier) || ENEMY_DEFINITIONS[0];
+    const elapsedSec = normalizedVariant === 'elite'
+      ? Math.max(battle.waves.elapsedSec, ELITE_UNLOCK_TIME_SEC)
+      : Math.max(battle.waves.elapsedSec, 60);
+    const enemy = createEnemyFromDefinition(def, elapsedSec, {
+      elite: normalizedVariant === 'elite',
+      hardened: normalizedVariant !== 'elite',
+      flowSpeedMul: 1
+    });
+    enemy.x = battle.ship.x + battle.canvasWidth * (enemy.elite ? 0.24 : -0.24);
+    enemy.y = battle.ship.y - battle.canvasHeight * 0.16;
+    enemy.hasBeenVisible = true;
+    enemy.speed = 0;
+    battle.enemies.push(enemy);
+    drawBattle();
+    return {
+      variant: enemy.elite ? 'elite' : 'hardened',
+      tier: enemy.tier,
+      hp: enemy.hp,
+      touchDamage: enemy.touchDamage
+    };
+  }
+};
+
+renderSetupControls();
+bindEvents();
