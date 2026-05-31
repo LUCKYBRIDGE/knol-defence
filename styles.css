@@ -700,6 +700,116 @@ select {
   color: var(--red);
 }
 
+.gugudan-status-check {
+  min-width: 0;
+  border: 1px solid rgba(15, 118, 110, 0.22);
+  border-radius: var(--radius);
+  background: linear-gradient(180deg, #ffffff, #f0fbfb);
+  padding: 10px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+}
+
+.gugudan-status-copy {
+  min-width: 0;
+}
+
+.gugudan-status-copy b {
+  display: block;
+  color: #0f3b4a;
+  font-size: 14px;
+  font-weight: 900;
+}
+
+.gugudan-status-copy p {
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1.35;
+}
+
+.gugudan-status-check .ghost-action {
+  min-height: 38px;
+  padding-inline: 12px;
+  white-space: nowrap;
+}
+
+.gugudan-status-panel {
+  grid-column: 1 / -1;
+  min-width: 0;
+  border: 1px solid rgba(15, 118, 110, 0.18);
+  border-radius: 10px;
+  background: #ffffff;
+  padding: 9px;
+  color: var(--ink);
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1.35;
+}
+
+.gugudan-status-panel.is-empty {
+  color: var(--muted);
+}
+
+.gugudan-status-panel.is-error {
+  border-color: rgba(185, 28, 28, 0.24);
+  background: #fff7f7;
+  color: #b91c1c;
+}
+
+.gugudan-status-panel.is-success {
+  border-color: rgba(15, 118, 110, 0.22);
+}
+
+.gugudan-status-summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(96px, 1fr));
+  gap: 5px 8px;
+  margin-bottom: 8px;
+}
+
+.gugudan-status-summary span {
+  display: block;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 900;
+}
+
+.gugudan-status-summary strong {
+  display: block;
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.gugudan-status-detail {
+  display: grid;
+  gap: 2px;
+  margin-top: 6px;
+}
+
+.gugudan-status-detail b {
+  color: #0f766e;
+  font-size: 11px;
+  font-weight: 900;
+}
+
+.gugudan-status-detail p {
+  margin: 0;
+  color: var(--ink);
+}
+
+.gugudan-status-panel em {
+  display: block;
+  margin-top: 8px;
+  color: var(--muted);
+  font-size: 10px;
+  font-style: normal;
+}
+
 .start-loading {
   position: absolute;
   inset: 0;
@@ -3575,6 +3685,15 @@ select {
     min-height: 26px;
     padding: 3px 8px;
     font-size: 10px;
+  }
+
+  .gugudan-status-check {
+    grid-template-columns: minmax(0, 1fr);
+    align-items: stretch;
+  }
+
+  .gugudan-status-check .ghost-action {
+    width: 100%;
   }
 
   .brand-kicker {

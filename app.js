@@ -252,6 +252,9 @@ const elements = {
   playerOptions: $('#player-options'),
   startButton: $('#start-button'),
   setupError: $('#setup-error'),
+  gugudanStatusButton: $('#gugudan-status-button'),
+  gugudanStatusFile: $('#gugudan-status-file'),
+  gugudanStatusPanel: $('#gugudan-status-panel'),
   startLoading: $('#start-loading'),
   startLoadingText: $('#start-loading-text'),
   startLoadingFill: $('#start-loading-fill'),
@@ -4523,6 +4526,92 @@ function getGugudanWeaknessText(factMap) {
   return `오답이 많은 단: ${danText}${factText ? ` / 문항: ${factText}` : ''}`;
 }
 
+function getGugudanAggregateSummary(factMap) {
+  const facts = getSortedGugudanFacts(factMap);
+  const totals = facts.reduce((sum, item) => ({
+    attempts: sum.attempts + item.attempts,
+    correct: sum.correct + item.correct,
+    wrong: sum.wrong + item.wrong
+  }), { attempts: 0, correct: 0, wrong: 0 });
+  const weakDans = getGugudanDanSummary(factMap)
+    .filter((item) => item.attempts > 0 && item.wrong > 0)
+    .sort((left, right) => right.wrong - left.wrong || right.attempts - left.attempts || left.dan - right.dan)
+    .slice(0, 3);
+  const weakFacts = facts
+    .filter((item) => item.attempts > 0 && item.wrong > 0)
+    .sort((left, right) => (
+      right.wrong - left.wrong
+      || right.attempts - left.attempts
+      || left.dan - right.dan
+      || left.multiplier - right.multiplier
+    ))
+    .slice(0, 5);
+  return { ...totals, weakDans, weakFacts };
+}
+
+function formatGugudanStatusList(items, type) {
+  if (!items.length) return '누적 오답이 없습니다.';
+  return items.map((item) => {
+    const label = type === 'dan' ? `${item.dan}단` : item.expression;
+    return `${label} · 오답 ${item.wrong}회 · ${formatCsvAccuracy(item.correct, item.attempts)}`;
+  }).join(' / ');
+}
+
+function setGugudanStatusPanel(message = '기록 파일을 선택하면 구구단 상태가 여기에 표시됩니다.', kind = '') {
+  const panel = elements.gugudanStatusPanel;
+  if (!panel) return;
+  panel.textContent = message;
+  panel.classList.toggle('is-empty', !kind);
+  panel.classList.toggle('is-error', kind === 'error');
+  panel.classList.toggle('is-success', kind === 'success');
+}
+
+function renderGugudanStatusPanel(record, fileName = '') {
+  const panel = elements.gugudanStatusPanel;
+  if (!panel) return;
+  const summary = getGugudanAggregateSummary(record.factMap);
+  const studentIds = Array.from(record.studentIds).filter(Boolean).sort((left, right) => left.localeCompare(right, 'ko-KR'));
+  const studentText = studentIds.length ? studentIds.join(', ') : '학생번호 없음';
+  const fileText = fileName ? `파일: ${fileName}` : '기록 파일';
+  panel.classList.remove('is-empty', 'is-error');
+  panel.classList.add('is-success');
+  panel.innerHTML = `
+    <div class="gugudan-status-summary">
+      <span>학생번호</span>
+      <strong>${escapeHtml(studentText)}</strong>
+      <span>누적 정답률</span>
+      <strong>${escapeHtml(formatAccuracy(summary.correct, summary.attempts))}</strong>
+      <span>풀이</span>
+      <strong>${summary.attempts}문제 · 오답 ${summary.wrong}회</strong>
+    </div>
+    <div class="gugudan-status-detail">
+      <b>오답이 많은 단</b>
+      <p>${escapeHtml(formatGugudanStatusList(summary.weakDans, 'dan'))}</p>
+    </div>
+    <div class="gugudan-status-detail">
+      <b>오답이 많은 문항</b>
+      <p>${escapeHtml(formatGugudanStatusList(summary.weakFacts, 'fact'))}</p>
+    </div>
+    <em>${escapeHtml(fileText)}은 앱 안에 저장되지 않습니다.</em>
+  `;
+}
+
+async function loadGugudanStatusCsv(file) {
+  if (!file) return;
+  setGugudanStatusPanel('기록 파일을 읽는 중입니다.', 'success');
+  try {
+    const text = await file.text();
+    const record = parseGugudanCsvAggregate(text);
+    if (!record.factMap.size) {
+      setGugudanStatusPanel('구구단 기록 파일을 읽지 못했습니다. 이 앱에서 저장한 구구단 CSV 파일을 선택하세요.', 'error');
+      return;
+    }
+    renderGugudanStatusPanel(record, file.name);
+  } catch (error) {
+    setGugudanStatusPanel('기록 파일을 읽지 못했습니다. CSV 파일을 다시 선택하세요.', 'error');
+  }
+}
+
 function setGugudanRecordStatus(message = '', kind = '') {
   if (!elements.gugudanRecordStatus) return;
   elements.gugudanRecordStatus.textContent = message;
@@ -4899,6 +4988,15 @@ function bindEvents() {
   elements.startButton.addEventListener('click', startSelectedGame);
   elements.exitButton.addEventListener('click', abandonSession);
   elements.backSetupButton.addEventListener('click', abandonSession);
+  elements.gugudanStatusButton?.addEventListener('click', () => {
+    if (!elements.gugudanStatusFile) return;
+    elements.gugudanStatusFile.value = '';
+    elements.gugudanStatusFile.click();
+  });
+  elements.gugudanStatusFile?.addEventListener('change', () => {
+    const file = elements.gugudanStatusFile.files?.[0];
+    loadGugudanStatusCsv(file);
+  });
   elements.gugudanDownloadCurrentButton?.addEventListener('click', downloadCurrentGugudanCsv);
   elements.gugudanMergeCsvButton?.addEventListener('click', () => {
     if (!elements.gugudanRecordFile) return;
