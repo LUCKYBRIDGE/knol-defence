@@ -184,6 +184,10 @@ const SHIP_MAX_PENETRATION_LEVEL = 4;
 const SHIP_MAX_EXPLOSION_LEVEL = 5;
 const SHIP_MAX_HULL_LEVEL = 6;
 const SHIP_PENETRATION_DAMAGE_FALLOFF = 0.88;
+const SHIP_RENDER_SCALE = 0.92;
+const SHIP_COLLISION_RADIUS_SCALE = 0.95;
+const ENEMY_RENDER_SCALE = 0.91;
+const ENEMY_COLLISION_RADIUS_SCALE = 0.94;
 const SHIP_EXPLOSION_BASE_RADIUS = 52;
 const SHIP_EXPLOSION_RADIUS_STEP = 11;
 const SHIP_EXPLOSION_BASE_DAMAGE_RATIO = 0.34;
@@ -192,9 +196,11 @@ const SHIP_EXPLOSION_DAMAGE_RATIO_MAX = 0.66;
 const SHIP_EXPLOSION_EFFECT_MS = 520;
 const EXPLOSION_FRAME_COUNT = 10;
 const EXPLOSION_SEED_BUCKETS = 8;
-const EXPLOSION_FRAME_CACHE_LIMIT = 240;
+const EXPLOSION_FRAME_CACHE_LIMIT = 520;
 const MAX_ACTIVE_BATTLE_EFFECTS = 36;
 const EXPLOSION_EFFECT_POOL_SIZE = 48;
+const PROJECTILE_POOL_SIZE = 96;
+const ENEMY_POOL_SIZE = 72;
 const BATTLESHIP_RESPAWN_DELAY_MS = 3000;
 const BATTLESHIP_RESPAWN_INVULN_MS = 1200;
 const BATTLESHIP_DEFEAT_FLASH_MS = 1150;
@@ -222,6 +228,10 @@ const BUSY_RENDER_ENEMY_COUNT = 14;
 const BUSY_RENDER_PROJECTILE_COUNT = 26;
 const VERY_BUSY_RENDER_ENEMY_COUNT = 22;
 const VERY_BUSY_RENDER_PROJECTILE_COUNT = 42;
+const PERFORMANCE_LAG_ENTER_SCORE = 2.5;
+const PERFORMANCE_LAG_EXIT_SCORE = 0.5;
+const PERFORMANCE_LAG_HARD_FRAME_MS = 38;
+const PERFORMANCE_LAG_SOFT_FRAME_MS = 25;
 const KILL_SCORE_BASE = 25;
 const KILL_SCORE_TIER_STEP = 14;
 const KILL_SCORE_COMBO_STEP = 0.015;
@@ -834,6 +844,20 @@ function warmupCanvasPrimitives() {
       104
     );
   }
+  let enemyX = 18;
+  let enemyY = 206;
+  enemyImages.forEach((image) => {
+    if (!image?.complete || !image.naturalWidth) return;
+    ctx.drawImage(image, enemyX, enemyY, 32, 32);
+    enemyX += 36;
+    if (enemyX > 278) {
+      enemyX = 18;
+      enemyY += 36;
+    }
+  });
+  for (let count = 1; count <= SHIP_MAX_PROJECTILE_COUNT; count += 1) {
+    getProjectileAngleOffsets(count);
+  }
   ctx.fillStyle = '#fb923c';
   ctx.beginPath();
   ctx.arc(212, 152, 8, 0, Math.PI * 2);
@@ -865,7 +889,7 @@ async function warmupExplosionFramesForLevel(level) {
   }
 }
 
-async function warmupExplosionFrames(levels = [1, 2]) {
+async function warmupExplosionFrames(levels = [1, 2, 3, 4, 5]) {
   for (const level of levels) {
     await warmupExplosionFramesForLevel(level);
   }
@@ -893,7 +917,7 @@ async function warmupCombatAssets(updateProgress) {
   warmupCanvasPrimitives();
   await nextPaint();
   updateProgress('폭발 효과를 미리 준비하는 중', 0.58);
-  await warmupExplosionFrames([1, 2]);
+  await warmupExplosionFrames([1, 2, 3, 4, 5]);
   await nextPaint();
   combatAssetsWarmed = true;
 }
@@ -1023,12 +1047,17 @@ function createBattleState(playerIndex = 0) {
     backgroundCache: null,
     enemies: [],
     enemiesNeedCompact: false,
+    enemyPool: createEnemyPool(),
     projectiles: [],
     projectilesNeedCompact: false,
+    projectilePool: createProjectilePool(),
     effects: [],
     effectsNeedCompact: false,
     effectPool: createEffectPool(),
     effectRecycleIndex: 0,
+    performanceLagScore: 0,
+    performanceMode: false,
+    performanceVeryBusy: false,
     random: null,
     spawnPlan: [],
     spawnPlanIndex: 0
@@ -2405,7 +2434,7 @@ function syncCanvasSize(options = {}) {
     session.battle.backgroundCache = null;
     session.battle.ship.x = width * 0.5;
     session.battle.ship.y = height * 0.5;
-    session.battle.ship.radius = clamp(Math.min(width, height) * 0.07, 17, 44);
+    session.battle.ship.radius = clamp(Math.min(width, height) * 0.07 * SHIP_COLLISION_RADIUS_SCALE, 16, 42);
   }
 }
 
@@ -2470,7 +2499,7 @@ function createEnemyFromDefinition(def, elapsedSec, options = {}) {
   let hp = Math.round((def.baseHp + ((plan?.hpRoll ?? battleRandom()) || 0) * 8) * hpScale);
   let speed = (def.baseSpeed + ((plan?.speedRoll ?? battleRandom()) || 0) * 14) * speedScale;
   let touchDamage = Math.round(def.baseTouchDamage * touchScale);
-  let renderSize = def.baseSize + Math.floor(elapsedSec / SIZE_GROWTH_STEP_SEC);
+  let renderSize = (def.baseSize + Math.floor(elapsedSec / SIZE_GROWTH_STEP_SEC)) * ENEMY_RENDER_SCALE;
 
   if (elite) {
     const variant = ENEMY_STRENGTH_VARIANTS.elite;
@@ -2531,11 +2560,14 @@ function createEnemyFromDefinition(def, elapsedSec, options = {}) {
   }
   speed *= flowSpeedMul;
 
-  const radius = Math.max(14, Math.round(renderSize * (elite ? 0.31 : 0.27)));
+  const radius = Math.max(12, Math.round(renderSize * (elite ? 0.31 : 0.27) * ENEMY_COLLISION_RADIUS_SCALE));
   const spawnPoint = getEnemySpawnPoint(radius, plan);
   battle.spawnSerial += 1;
-  return {
+  const enemy = acquireEnemy(battle);
+  Object.assign(enemy, {
     id: `enemy-${battle.playerIndex}-${battle.spawnSerial}`,
+    active: true,
+    removed: false,
     tier: def.tier,
     typeCode: def.code,
     typeName: def.name,
@@ -2553,7 +2585,8 @@ function createEnemyFromDefinition(def, elapsedSec, options = {}) {
     renderSize,
     hasBeenVisible: false,
     wobbleSeed: ((plan?.wobbleRoll ?? battleRandom()) || 0) * Math.PI * 2
-  };
+  });
+  return enemy;
 }
 
 function shouldSpawnHardenedEnemy(elapsedSec, flow, def, roll01 = null) {
@@ -2594,13 +2627,19 @@ function spawnEnemy(flow) {
   }
 }
 
+function isEnemyTargetable(enemy, battle = session?.battle) {
+  if (!enemy || enemy.removed || !battle) return false;
+  if (!enemy.hasBeenVisible) return false;
+  return isDrawAreaVisible(enemy.x, enemy.y, enemy.radius, battle.canvasWidth, battle.canvasHeight, 2);
+}
+
 function getNearestEnemy() {
   const battle = session.battle;
   let nearest = null;
   let nearestDistSq = Number.POSITIVE_INFINITY;
   for (let index = 0; index < battle.enemies.length; index += 1) {
     const enemy = battle.enemies[index];
-    if (!enemy || enemy.removed) continue;
+    if (!isEnemyTargetable(enemy, battle)) continue;
     const distSq = distanceSq(battle.ship.x, battle.ship.y, enemy.x, enemy.y);
     if (distSq < nearestDistSq) {
       nearest = enemy;
@@ -2630,6 +2669,84 @@ function getProjectileAngleOffsets(count) {
   return offsets;
 }
 
+function createPooledEnemy(index = 0) {
+  return {
+    poolIndex: index,
+    active: false,
+    removed: true,
+    id: '',
+    tier: 1,
+    typeCode: '',
+    typeName: '',
+    role: '',
+    roleLabel: '',
+    elite: false,
+    hardened: false,
+    x: 0,
+    y: 0,
+    radius: 0,
+    speed: 0,
+    hp: 0,
+    maxHp: 0,
+    touchDamage: 0,
+    renderSize: 0,
+    hasBeenVisible: false,
+    wobbleSeed: 0
+  };
+}
+
+function createEnemyPool(size = ENEMY_POOL_SIZE) {
+  return Array.from({ length: size }, (_, index) => createPooledEnemy(index));
+}
+
+function acquireEnemy(battle = session?.battle) {
+  if (!battle) return createPooledEnemy();
+  if (!Array.isArray(battle.enemyPool) || !battle.enemyPool.length) {
+    battle.enemyPool = createEnemyPool();
+  }
+  const pooled = battle.enemyPool.find((enemy) => enemy && !enemy.active);
+  if (pooled) return pooled;
+  const overflow = createPooledEnemy(battle.enemyPool.length);
+  battle.enemyPool.push(overflow);
+  return overflow;
+}
+
+function createPooledProjectile(index = 0) {
+  return {
+    poolIndex: index,
+    active: false,
+    removed: true,
+    x: 0,
+    y: 0,
+    vx: 0,
+    vy: 0,
+    radius: 0,
+    damage: 0,
+    remainingHits: 0,
+    explosionLevel: 0,
+    explosionRadius: 0,
+    explosionDamageRatio: 0,
+    trackHits: false,
+    hitEnemyIds: []
+  };
+}
+
+function createProjectilePool(size = PROJECTILE_POOL_SIZE) {
+  return Array.from({ length: size }, (_, index) => createPooledProjectile(index));
+}
+
+function acquireProjectile(battle = session?.battle) {
+  if (!battle) return createPooledProjectile();
+  if (!Array.isArray(battle.projectilePool) || !battle.projectilePool.length) {
+    battle.projectilePool = createProjectilePool();
+  }
+  const pooled = battle.projectilePool.find((projectile) => projectile && !projectile.active);
+  if (pooled) return pooled;
+  const overflow = createPooledProjectile(battle.projectilePool.length);
+  battle.projectilePool.push(overflow);
+  return overflow;
+}
+
 function shootAt(target) {
   const battle = session.battle;
   const count = Math.max(1, battle.ship.projectileCount);
@@ -2642,20 +2759,22 @@ function shootAt(target) {
     const angle = baseAngle + offset;
     const cos = Math.cos(angle);
     const sin = Math.sin(angle);
-    battle.projectiles.push({
-      x: battle.ship.x + cos * 34,
-      y: battle.ship.y + sin * 34,
-      vx: cos * 430,
-      vy: sin * 430,
-      radius: 6.5 + Math.min(2, battle.ship.attackPowerLevel * 0.18),
-      damage: battle.ship.attackPower,
-      remainingHits: penetrationHits,
-      explosionLevel,
-      explosionRadius,
-      explosionDamageRatio,
-      hitEnemyIds: penetrationHits > 0 ? [] : null,
-      removed: false
-    });
+    const projectile = acquireProjectile(battle);
+    projectile.active = true;
+    projectile.removed = false;
+    projectile.x = battle.ship.x + cos * 34;
+    projectile.y = battle.ship.y + sin * 34;
+    projectile.vx = cos * 430;
+    projectile.vy = sin * 430;
+    projectile.radius = 6.5 + Math.min(2, battle.ship.attackPowerLevel * 0.18);
+    projectile.damage = battle.ship.attackPower;
+    projectile.remainingHits = penetrationHits;
+    projectile.explosionLevel = explosionLevel;
+    projectile.explosionRadius = explosionRadius;
+    projectile.explosionDamageRatio = explosionDamageRatio;
+    projectile.trackHits = penetrationHits > 0;
+    projectile.hitEnemyIds.length = 0;
+    battle.projectiles.push(projectile);
   });
 }
 
@@ -2705,7 +2824,9 @@ function applyDamageToEnemy(enemy, rawDamage, fromExplosion = false) {
 }
 
 function markEnemyRemoved(enemy) {
-  if (enemy) enemy.removed = true;
+  if (!enemy) return;
+  enemy.active = false;
+  enemy.removed = true;
 }
 
 function removeEnemyAt(_index, enemy) {
@@ -2721,6 +2842,7 @@ function compactRemovedEnemies(battle = session?.battle) {
 }
 
 function projectileHasHitEnemy(projectile, enemyId) {
+  if (!projectile?.trackHits) return false;
   const hitEnemyIds = projectile?.hitEnemyIds;
   if (!hitEnemyIds) return false;
   if (Array.isArray(hitEnemyIds)) return hitEnemyIds.includes(enemyId);
@@ -2728,6 +2850,7 @@ function projectileHasHitEnemy(projectile, enemyId) {
 }
 
 function addProjectileHitEnemy(projectile, enemyId) {
+  if (!projectile?.trackHits) return;
   const hitEnemyIds = projectile?.hitEnemyIds;
   if (!hitEnemyIds) return;
   if (Array.isArray(hitEnemyIds)) {
@@ -2739,7 +2862,10 @@ function addProjectileHitEnemy(projectile, enemyId) {
 
 function markProjectileRemoved(projectile) {
   if (!projectile) return;
+  projectile.active = false;
   projectile.removed = true;
+  if (Array.isArray(projectile.hitEnemyIds)) projectile.hitEnemyIds.length = 0;
+  projectile.trackHits = false;
   if (session?.battle) session.battle.projectilesNeedCompact = true;
 }
 
@@ -2768,22 +2894,23 @@ function buildEnemySpatialGrid(battle) {
   return { cellSize, buckets };
 }
 
-function getEnemySpatialCandidates(grid, x, y, radius) {
-  if (!grid?.buckets?.size) return [];
+function forEachEnemySpatialCandidate(grid, x, y, radius, callback) {
+  if (!grid?.buckets?.size || typeof callback !== 'function') return;
   const cellSize = grid.cellSize || ENEMY_SPATIAL_CELL_SIZE;
   const safeRadius = Math.max(1, Number(radius) || 1);
   const minX = Math.floor((x - safeRadius) / cellSize);
   const maxX = Math.floor((x + safeRadius) / cellSize);
   const minY = Math.floor((y - safeRadius) / cellSize);
   const maxY = Math.floor((y + safeRadius) / cellSize);
-  const candidates = [];
   for (let cellY = minY; cellY <= maxY; cellY += 1) {
     for (let cellX = minX; cellX <= maxX; cellX += 1) {
       const bucket = grid.buckets.get(`${cellX}:${cellY}`);
-      if (bucket) candidates.push(...bucket);
+      if (!bucket) continue;
+      for (let index = 0; index < bucket.length; index += 1) {
+        callback(bucket[index]);
+      }
     }
   }
-  return candidates;
 }
 
 function createPooledExplosionEffect(index = 0) {
@@ -2886,18 +3013,14 @@ function applyProjectileExplosion(projectile, sourceEnemyId, enemyGrid = null) {
   const splashDamage = Math.max(1, Math.round((Number(projectile?.damage) || 0) * damageRatio));
   const explosionLevel = Math.max(1, Number(projectile?.explosionLevel) || 1);
   addExplosionEffect(impactX, impactY, radius, explosionLevel, splashDamage);
-  const candidates = enemyGrid
-    ? getEnemySpatialCandidates(enemyGrid, impactX, impactY, radius + 80)
-    : battle.enemies;
-  for (let index = candidates.length - 1; index >= 0; index -= 1) {
-    const enemy = candidates[index];
-    if (!enemy || enemy.removed || enemy.id === sourceEnemyId) continue;
+  const applySplashToEnemy = (enemy) => {
+    if (!enemy || enemy.removed || enemy.id === sourceEnemyId) return;
     const maxDistance = radius + enemy.radius;
     const centerDistanceSq = distanceSq(impactX, impactY, enemy.x, enemy.y);
-    if (centerDistanceSq > maxDistance * maxDistance) continue;
+    if (centerDistanceSq > maxDistance * maxDistance) return;
     const centerDistance = Math.sqrt(centerDistanceSq);
     const edgeDistance = Math.max(0, centerDistance - enemy.radius);
-    if (edgeDistance > radius) continue;
+    if (edgeDistance > radius) return;
     const falloff = 1 - clamp(edgeDistance / Math.max(1, radius), 0, 1);
     const explosionDamage = Math.max(1, Math.round(splashDamage * (0.48 + falloff * 0.52)));
     const vectorLength = Math.max(0.0001, centerDistance);
@@ -2907,6 +3030,13 @@ function applyProjectileExplosion(projectile, sourceEnemyId, enemyGrid = null) {
     if (applyDamageToEnemy(enemy, explosionDamage, true)) {
       removeEnemyAt(-1, enemy);
       addKillReward(enemy);
+    }
+  };
+  if (enemyGrid) {
+    forEachEnemySpatialCandidate(enemyGrid, impactX, impactY, radius + 80, applySplashToEnemy);
+  } else {
+    for (let index = battle.enemies.length - 1; index >= 0; index -= 1) {
+      applySplashToEnemy(battle.enemies[index]);
     }
   }
 }
@@ -2952,8 +3082,14 @@ function clearBattlefieldForRespawn(battle = session?.battle) {
   const clearedEnemies = Array.isArray(battle.enemies)
     ? battle.enemies.filter((enemy) => enemy && !enemy.removed).length
     : 0;
+  if (Array.isArray(battle.enemies)) {
+    battle.enemies.forEach((enemy) => markEnemyRemoved(enemy));
+  }
   battle.enemies = [];
   battle.enemiesNeedCompact = false;
+  if (Array.isArray(battle.projectiles)) {
+    battle.projectiles.forEach((projectile) => markProjectileRemoved(projectile));
+  }
   battle.projectiles = [];
   battle.projectilesNeedCompact = false;
   if (Array.isArray(battle.effects)) {
@@ -3070,16 +3206,14 @@ function updateBattle(dtSec, nowMs) {
     let hit = false;
     let hitEnemy = null;
     let hitEnemyDistanceSq = Number.POSITIVE_INFINITY;
-    const candidates = getEnemySpatialCandidates(enemyGrid, projectile.x, projectile.y, projectile.radius + 80);
-    for (let enemyIndex = 0; enemyIndex < candidates.length; enemyIndex += 1) {
-      const enemy = candidates[enemyIndex];
-      if (!enemy || enemy.removed || projectileHasHitEnemy(projectile, enemy.id)) continue;
+    forEachEnemySpatialCandidate(enemyGrid, projectile.x, projectile.y, projectile.radius + 80, (enemy) => {
+      if (!enemy || enemy.removed || projectileHasHitEnemy(projectile, enemy.id)) return;
       const hitRadius = projectile.radius + enemy.radius;
       const projectileDistanceSq = distanceSq(projectile.x, projectile.y, enemy.x, enemy.y);
-      if (projectileDistanceSq > hitRadius * hitRadius || projectileDistanceSq >= hitEnemyDistanceSq) continue;
+      if (projectileDistanceSq > hitRadius * hitRadius || projectileDistanceSq >= hitEnemyDistanceSq) return;
       hitEnemy = enemy;
       hitEnemyDistanceSq = projectileDistanceSq;
-    }
+    });
     if (hitEnemy) {
       addProjectileHitEnemy(projectile, hitEnemy.id);
       const killed = applyDamageToEnemy(hitEnemy, projectile.damage);
@@ -3303,7 +3437,7 @@ function drawShip(ctx, ship, nowMs) {
   const invulnerable = isShipInvulnerable(nowMs);
   const respawning = isShipRespawning(nowMs);
   const mapSize = Math.min(session.battle.canvasWidth, session.battle.canvasHeight);
-  const longEdge = clamp(mapSize * 0.24, 34, 124);
+  const longEdge = clamp(mapSize * 0.24 * SHIP_RENDER_SCALE, 31, 114);
   const drawHeight = longEdge;
   const drawWidth = drawHeight * (SHIP_SPRITE_CROP.width / SHIP_SPRITE_CROP.height);
   ctx.save();
@@ -3541,16 +3675,20 @@ function getBattleRenderLoad(battle = session?.battle) {
   const enemyCount = Number(battle?.enemies?.length) || 0;
   const projectileCount = Number(battle?.projectiles?.length) || 0;
   const effectCount = countActiveEffects(battle);
-  const busy = enemyCount >= BUSY_RENDER_ENEMY_COUNT
+  const performanceMode = Boolean(battle?.performanceMode);
+  const busy = performanceMode
+    || enemyCount >= BUSY_RENDER_ENEMY_COUNT
     || projectileCount >= BUSY_RENDER_PROJECTILE_COUNT
     || effectCount >= 7;
-  const veryBusy = enemyCount >= VERY_BUSY_RENDER_ENEMY_COUNT
+  const veryBusy = Boolean(battle?.performanceVeryBusy)
+    || enemyCount >= VERY_BUSY_RENDER_ENEMY_COUNT
     || projectileCount >= VERY_BUSY_RENDER_PROJECTILE_COUNT
     || effectCount >= 10;
-  return { busy, veryBusy, enemyCount, projectileCount, effectCount };
+  return { busy, veryBusy, performanceMode, enemyCount, projectileCount, effectCount };
 }
 
 function shouldDrawEnemyInfo(enemy, variantStyle, renderLoad) {
+  if (renderLoad?.performanceMode && !enemy.elite && !enemy.hardened && enemy.hp >= enemy.maxHp) return false;
   if (!renderLoad?.busy) return true;
   if (enemy.hp < enemy.maxHp) return true;
   if (variantStyle || enemy.elite || enemy.hardened) return true;
@@ -3570,15 +3708,15 @@ function drawEnemy(ctx, enemy, nowMs, renderLoad = null) {
   const drawHeight = spriteSize?.height || enemy.renderSize * enemyDrawScale;
   const drawX = enemy.x - drawWidth / 2;
   const drawY = enemy.y - drawHeight / 2;
-  if (!renderLoad?.veryBusy || enemy.elite) {
+  if ((!renderLoad?.veryBusy && !renderLoad?.performanceMode) || enemy.elite) {
     drawEnemyVariantAura(ctx, enemy, drawWidth, drawHeight, variantStyle, nowMs);
   }
 
   ctx.save();
   ctx.shadowColor = 'rgba(9, 24, 56, 0.24)';
-  ctx.shadowBlur = (renderLoad?.veryBusy ? 0 : (variantStyle ? 18 : 10)) * enemyDrawScale;
-  ctx.shadowOffsetY = renderLoad?.veryBusy ? 0 : 6 * enemyDrawScale;
-  if (variantStyle?.shadowColor && !renderLoad?.busy) {
+  ctx.shadowBlur = (renderLoad?.veryBusy || renderLoad?.performanceMode ? 0 : (variantStyle ? 18 : 10)) * enemyDrawScale;
+  ctx.shadowOffsetY = renderLoad?.veryBusy || renderLoad?.performanceMode ? 0 : 6 * enemyDrawScale;
+  if (variantStyle?.shadowColor && !renderLoad?.busy && !renderLoad?.performanceMode) {
     ctx.filter = `drop-shadow(0 0 ${(enemy.elite ? 16 : 11) * enemyDrawScale}px ${variantStyle.shadowColor})`;
   }
   if (image?.complete && image.naturalWidth) {
@@ -3828,8 +3966,9 @@ function drawProjectileGroup(ctx, projectiles, width, height, hasExplosion) {
 
 function drawProjectiles(ctx, projectiles, width, height) {
   if (!Array.isArray(projectiles) || !projectiles.length) return;
+  const renderLoad = getBattleRenderLoad();
   ctx.save();
-  ctx.lineWidth = PROJECTILE_RENDER_STROKE_WIDTH;
+  ctx.lineWidth = renderLoad.performanceMode ? 0.85 : PROJECTILE_RENDER_STROKE_WIDTH;
   ctx.fillStyle = '#f9e27d';
   ctx.strokeStyle = 'rgba(120,53,15,0.55)';
   drawProjectileGroup(ctx, projectiles, width, height, false);
@@ -3913,9 +4052,28 @@ function getBattleDrawIntervalMs(battle) {
   const busyCombat = battle.projectiles.length >= 28 || countActiveEffects(battle) >= 6 || battle.enemies.length >= 18;
   const busyQuiz = isTabletFaceToFaceSession()
     && session.playerQuizStates.some((quizState) => quizState.quizOpen);
+  if (battle.performanceMode && (busyCombat || mapSize >= 640)) return isTabletFaceToFaceSession() ? 34 : 28;
   if (isTabletFaceToFaceSession() && (busyCombat || busyQuiz)) return 34;
   if (mapSize >= 640 && busyCombat) return 24;
   return 0;
+}
+
+function updateBattlePerformanceMode(battle, dtMs) {
+  if (!battle) return;
+  const frameMs = Number(dtMs) || 0;
+  if (frameMs >= PERFORMANCE_LAG_HARD_FRAME_MS) {
+    battle.performanceLagScore = Math.min(10, (Number(battle.performanceLagScore) || 0) + 2);
+  } else if (frameMs >= PERFORMANCE_LAG_SOFT_FRAME_MS) {
+    battle.performanceLagScore = Math.min(10, (Number(battle.performanceLagScore) || 0) + 1);
+  } else {
+    battle.performanceLagScore = Math.max(0, (Number(battle.performanceLagScore) || 0) - 0.25);
+  }
+  if (!battle.performanceMode && battle.performanceLagScore >= PERFORMANCE_LAG_ENTER_SCORE) {
+    battle.performanceMode = true;
+  } else if (battle.performanceMode && battle.performanceLagScore <= PERFORMANCE_LAG_EXIT_SCORE) {
+    battle.performanceMode = false;
+  }
+  battle.performanceVeryBusy = battle.performanceLagScore >= PERFORMANCE_LAG_ENTER_SCORE + 3;
 }
 
 function shouldDrawBattleFrame(battle, nowMs) {
@@ -3930,6 +4088,7 @@ function battleFrame(nowMs) {
     withBattleContext(battle.playerIndex, () => {
       const dtMs = Math.min(50, Math.max(0, nowMs - battle.lastFrameMs));
       battle.lastFrameMs = nowMs;
+      updateBattlePerformanceMode(battle, dtMs);
       updateBattle(dtMs / 1000, nowMs);
       if (shouldDrawBattleFrame(battle, nowMs)) {
         battle.lastDrawMs = nowMs;
@@ -4362,6 +4521,8 @@ window.__KNOLQUIZ_TEST__ = {
       lastDeathPenalty: battle.lastDeathPenalty,
       lastDeathClearedEnemies: battle.lastDeathClearedEnemies,
       respawning: isShipRespawning(),
+      performanceMode: battle.performanceMode,
+      performanceLagScore: Math.round((Number(battle.performanceLagScore) || 0) * 10) / 10,
       ship: {
         hp: Math.round(battle.ship.hp),
         maxHp: battle.ship.maxHp,
@@ -4398,8 +4559,11 @@ window.__KNOLQUIZ_TEST__ = {
       const angle = (Math.PI * 2 * index) / total;
       const spread = index === 0 ? 0 : 18 + (index % 2) * 8;
       battle.spawnSerial += 1;
-      battle.enemies.push({
+      const enemy = acquireEnemy(battle);
+      Object.assign(enemy, {
         id: `test-cluster-${battle.playerIndex}-${battle.spawnSerial}`,
+        active: true,
+        removed: false,
         tier: def.tier,
         typeCode: def.code,
         typeName: def.name,
@@ -4418,6 +4582,7 @@ window.__KNOLQUIZ_TEST__ = {
         hasBeenVisible: true,
         wobbleSeed: battleRandom() * Math.PI * 2
       });
+      battle.enemies.push(enemy);
     }
     battle.nextShotMs = Math.min(battle.nextShotMs, battle.worldElapsedMs + 20);
     drawBattle();
@@ -4433,8 +4598,11 @@ window.__KNOLQUIZ_TEST__ = {
     if (!session) return false;
     setBattleContext(playerIndex);
     const battle = session.battle;
-    battle.enemies.push({
+    const enemy = acquireEnemy(battle);
+    Object.assign(enemy, {
       id: `test-${Date.now()}`,
+      active: true,
+      removed: false,
       tier: 1,
       typeCode: '01',
       typeName: '도깨비불',
@@ -4453,6 +4621,7 @@ window.__KNOLQUIZ_TEST__ = {
       hasBeenVisible: true,
       wobbleSeed: 0
     });
+    battle.enemies.push(enemy);
     return true;
   },
   spawnEnemyVariant(variant = 'hardened', tier = 5, playerIndex = currentBattleIndex) {
