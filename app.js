@@ -251,6 +251,7 @@ const elements = {
   qrToggle: $('#qr-toggle'),
   qrModal: $('#qr-modal'),
   qrCloseButton: $('#qr-close-button'),
+  fullscreenToggles: $$('.fullscreen-toggle'),
   displayModeToggle: $('#display-mode-toggle'),
   playerOptions: $('#player-options'),
   startButton: $('#start-button'),
@@ -890,6 +891,55 @@ function setQrModalOpen(open, options = {}) {
     elements.qrCloseButton?.focus();
   } else if (options.restoreFocus !== false) {
     elements.qrToggle?.focus();
+  }
+}
+
+function isFullscreenActive() {
+  return Boolean(document.fullscreenElement || document.webkitFullscreenElement);
+}
+
+function isFullscreenSupported() {
+  const root = document.documentElement;
+  return Boolean(root.requestFullscreen || root.webkitRequestFullscreen);
+}
+
+function updateFullscreenControls() {
+  const active = isFullscreenActive();
+  const supported = isFullscreenSupported();
+  elements.fullscreenToggles.forEach((button) => {
+    button.textContent = active ? '전체화면 해제' : '전체화면';
+    button.disabled = !supported;
+    button.classList.toggle('is-active', active);
+    button.setAttribute('aria-pressed', String(active));
+    button.setAttribute('aria-label', active ? '전체화면 해제' : '전체화면으로 보기');
+    button.title = supported ? (active ? '전체화면 해제' : '전체화면으로 보기') : '이 브라우저는 전체화면을 지원하지 않습니다.';
+  });
+}
+
+async function toggleFullscreen() {
+  if (!isFullscreenSupported()) {
+    updateFullscreenControls();
+    return;
+  }
+  try {
+    if (isFullscreenActive()) {
+      if (document.exitFullscreen) {
+        await document.exitFullscreen();
+      } else if (document.webkitExitFullscreen) {
+        document.webkitExitFullscreen();
+      }
+    } else {
+      const root = document.documentElement;
+      if (root.requestFullscreen) {
+        await root.requestFullscreen();
+      } else if (root.webkitRequestFullscreen) {
+        root.webkitRequestFullscreen();
+      }
+    }
+  } catch (error) {
+    console.warn('Fullscreen toggle failed', error);
+  } finally {
+    updateFullscreenControls();
   }
 }
 
@@ -5165,6 +5215,11 @@ function bindEvents() {
   });
 
   elements.displayModeToggle?.addEventListener('click', selectNextDisplayMode);
+  elements.fullscreenToggles.forEach((button) => {
+    button.addEventListener('click', toggleFullscreen);
+  });
+  document.addEventListener('fullscreenchange', updateFullscreenControls);
+  document.addEventListener('webkitfullscreenchange', updateFullscreenControls);
   elements.qrToggle?.addEventListener('click', () => setQrModalOpen(true));
   elements.qrCloseButton?.addEventListener('click', () => setQrModalOpen(false));
   elements.qrModal?.addEventListener('click', (event) => {
@@ -5407,3 +5462,4 @@ window.__KNOLQUIZ_TEST__ = {
 
 renderSetupControls();
 bindEvents();
+updateFullscreenControls();
