@@ -881,6 +881,15 @@ select {
   overflow: auto;
 }
 
+.battle-panel-coop:not(.battle-panel-tablet) {
+  grid-template-rows: auto minmax(0, 1fr) auto;
+}
+
+.battle-panel-coop:not(.battle-panel-tablet) .battle-command {
+  gap: 5px;
+  overflow: visible;
+}
+
 .stage-panel-tablet-face {
   padding: 4px;
   margin-inline: auto;
@@ -1356,6 +1365,13 @@ select {
 .coop-player-control-grid.player-count-3 { --coop-control-count: 3; }
 .coop-player-control-grid.player-count-4 { --coop-control-count: 4; }
 
+@media (max-width: 1180px) {
+  .battle-panel-coop:not(.battle-panel-tablet) .coop-player-control-grid.player-count-3,
+  .battle-panel-coop:not(.battle-panel-tablet) .coop-player-control-grid.player-count-4 {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
 .coop-player-control-card {
   position: relative;
   isolation: isolate;
@@ -1369,6 +1385,35 @@ select {
   grid-template-rows: auto auto minmax(0, 1fr);
   gap: 6px;
   overflow: hidden;
+}
+
+@media (min-width: 721px) {
+  .battle-panel-coop:not(.battle-panel-tablet) .coop-player-control-card {
+    padding: 5px;
+    grid-template-columns: minmax(54px, 0.14fr) minmax(104px, 0.2fr) minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr);
+    align-items: center;
+    gap: 5px;
+  }
+
+  .battle-panel-coop:not(.battle-panel-tablet) .coop-player-control-head {
+    gap: 4px;
+  }
+
+  .battle-panel-coop:not(.battle-panel-tablet) .player-control-quiz {
+    min-height: 30px;
+    padding-block: 3px;
+  }
+
+  .battle-panel-coop:not(.battle-panel-tablet) .player-upgrade-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 4px;
+  }
+
+  .battle-panel-coop:not(.battle-panel-tablet) .player-upgrade-grid .upgrade-button {
+    min-height: 27px;
+    padding: 2px 4px;
+  }
 }
 
 .coop-player-control-card.is-quiz-open {
@@ -1688,6 +1733,15 @@ select {
   overflow-wrap: anywhere;
 }
 
+.battle-panel-coop:not(.battle-panel-tablet) .battle-status {
+  min-height: 34px;
+  padding: 5px 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1.12;
+}
+
 .battle-status.success {
   color: #ffffff;
   border-color: rgba(6, 95, 70, 0.4);
@@ -1711,6 +1765,11 @@ select {
   display: grid;
   grid-template-columns: minmax(128px, 0.24fr) minmax(0, 1fr);
   gap: 7px;
+}
+
+.battle-panel-coop:not(.battle-panel-tablet) .battle-control-row {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0;
 }
 
 .coop-quiz-buttons {
@@ -1753,6 +1812,17 @@ select {
   gap: 7px;
 }
 
+.battle-panel-coop:not(.battle-panel-tablet) .battle-stat-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 5px;
+}
+
+@media (min-width: 680px) {
+  .battle-panel-coop:not(.battle-panel-tablet) .battle-stat-grid {
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+  }
+}
+
 .split-count-2 .battle-stat-grid,
 .split-count-3 .battle-stat-grid,
 .split-count-4 .battle-stat-grid {
@@ -1776,6 +1846,11 @@ select {
   padding: 7px;
 }
 
+.battle-panel-coop:not(.battle-panel-tablet) .battle-stat {
+  min-height: 48px;
+  padding: 5px 7px;
+}
+
 .split-count-3 .battle-stat,
 .split-count-4 .battle-stat {
   padding: 5px;
@@ -1786,6 +1861,10 @@ select {
   color: var(--muted);
   font-size: 11px;
   line-height: 1.1;
+}
+
+.battle-panel-coop:not(.battle-panel-tablet) .battle-stat b {
+  font-size: 10px;
 }
 
 .split-count-3 .battle-stat b,
@@ -1800,6 +1879,11 @@ select {
   font-weight: 900;
   line-height: 1.15;
   overflow-wrap: anywhere;
+}
+
+.battle-panel-coop:not(.battle-panel-tablet) .battle-stat span {
+  font-size: 12px;
+  line-height: 1.08;
 }
 
 .split-count-3 .battle-stat span,
@@ -1821,6 +1905,10 @@ select {
   font-size: 14px;
 }
 
+.battle-panel-coop:not(.battle-panel-tablet) .battle-stat.score-stat span {
+  font-size: 13px;
+}
+
 .ship-hp-stat {
   border-color: rgba(34, 197, 94, 0.42);
   background: linear-gradient(180deg, #f8fffb, #eafbf0);
@@ -1829,6 +1917,10 @@ select {
 .ship-hp-stat span {
   color: #166534;
   font-size: 15px;
+}
+
+.battle-panel-coop:not(.battle-panel-tablet) .ship-hp-stat span {
+  font-size: 13px;
 }
 
 .ship-hp-stat.is-warning {
