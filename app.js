@@ -267,6 +267,12 @@ const elements = {
   resultTimePill: $('#result-time-pill'),
   resultGrid: $('#result-grid'),
   playerResults: $('#player-results'),
+  gugudanRecordPanel: $('#gugudan-record-panel'),
+  gugudanStudentId: $('#gugudan-student-id'),
+  gugudanDownloadCurrentButton: $('#gugudan-download-current-button'),
+  gugudanMergeCsvButton: $('#gugudan-merge-csv-button'),
+  gugudanRecordFile: $('#gugudan-record-file'),
+  gugudanRecordStatus: $('#gugudan-record-status'),
   restartSameButton: $('#restart-same-button'),
   backSetupButton: $('#back-setup-button')
 };
@@ -409,6 +415,272 @@ function formatAccuracy(correct, attempts) {
   const safeAttempts = Math.max(0, Number(attempts) || 0);
   const accuracy = safeAttempts > 0 ? Math.round((safeCorrect / safeAttempts) * 100) : 0;
   return `${accuracy}% (${safeCorrect}/${safeAttempts})`;
+}
+
+function formatCsvAccuracy(correct, attempts) {
+  const safeCorrect = Math.max(0, Number(correct) || 0);
+  const safeAttempts = Math.max(0, Number(attempts) || 0);
+  return safeAttempts > 0 ? `${Math.round((safeCorrect / safeAttempts) * 1000) / 10}%` : '0%';
+}
+
+function formatFileTimestamp(date = new Date()) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  const hour = String(date.getHours()).padStart(2, '0');
+  const minute = String(date.getMinutes()).padStart(2, '0');
+  const second = String(date.getSeconds()).padStart(2, '0');
+  return `${year}${month}${day}-${hour}${minute}${second}`;
+}
+
+function formatCsvDateTime(date = new Date()) {
+  return date.toLocaleString('ko-KR', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit'
+  });
+}
+
+function escapeCsv(value) {
+  const text = String(value ?? '');
+  return /[",\n\r]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text;
+}
+
+function parseCsvTable(text) {
+  const rows = [];
+  let row = [];
+  let cell = '';
+  let quoted = false;
+  const source = String(text || '').replace(/^\uFEFF/, '');
+  for (let index = 0; index < source.length; index += 1) {
+    const char = source[index];
+    const next = source[index + 1];
+    if (quoted) {
+      if (char === '"' && next === '"') {
+        cell += '"';
+        index += 1;
+      } else if (char === '"') {
+        quoted = false;
+      } else {
+        cell += char;
+      }
+    } else if (char === '"') {
+      quoted = true;
+    } else if (char === ',') {
+      row.push(cell);
+      cell = '';
+    } else if (char === '\n') {
+      row.push(cell);
+      rows.push(row);
+      row = [];
+      cell = '';
+    } else if (char !== '\r') {
+      cell += char;
+    }
+  }
+  if (cell || row.length) {
+    row.push(cell);
+    rows.push(row);
+  }
+  return rows.filter((items) => items.some((item) => String(item).trim()));
+}
+
+function csvRowsToObjects(text) {
+  const rows = parseCsvTable(text);
+  if (rows.length < 2) return [];
+  const headers = rows[0].map((header) => String(header || '').trim());
+  return rows.slice(1).map((row) => {
+    const record = {};
+    headers.forEach((header, index) => {
+      record[header] = row[index] ?? '';
+    });
+    return record;
+  });
+}
+
+function getCsvNumber(value) {
+  const parsed = Number(String(value ?? '').replace(/[^0-9.-]/g, ''));
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function getSafeStudentId(value) {
+  return String(value || '')
+    .trim()
+    .replace(/\s+/g, '-')
+    .replace(/[^0-9A-Za-z_-]/g, '')
+    .slice(0, 24);
+}
+
+function getGugudanFact(question) {
+  const text = String(question?.text || question?.prompt || '').trim();
+  const match = text.match(/(\d+)\s*(?:x|×|\*)\s*(\d+)/i);
+  if (!match) return null;
+  const dan = Number(match[1]);
+  const multiplier = Number(match[2]);
+  if (!Number.isFinite(dan) || !Number.isFinite(multiplier)) return null;
+  return {
+    dan,
+    multiplier,
+    key: `${dan}x${multiplier}`,
+    expression: `${dan}x${multiplier}`,
+    label: `${dan} x ${multiplier}`
+  };
+}
+
+function createEmptyGugudanAggregate(fact) {
+  return {
+    dan: fact.dan,
+    multiplier: fact.multiplier,
+    expression: fact.expression,
+    attempts: 0,
+    correct: 0,
+    wrong: 0,
+    lastWrongAt: ''
+  };
+}
+
+function addGugudanAggregate(map, fact, values = {}) {
+  if (!fact?.key) return null;
+  if (!map.has(fact.key)) {
+    map.set(fact.key, createEmptyGugudanAggregate(fact));
+  }
+  const item = map.get(fact.key);
+  item.attempts += Math.max(0, Number(values.attempts) || 0);
+  item.correct += Math.max(0, Number(values.correct) || 0);
+  item.wrong += Math.max(0, Number(values.wrong) || 0);
+  if (values.lastWrongAt) item.lastWrongAt = String(values.lastWrongAt);
+  return item;
+}
+
+function createGugudanAggregateFromRecords(records = []) {
+  const factMap = new Map();
+  records.forEach((record) => {
+    const fact = {
+      dan: record.dan,
+      multiplier: record.multiplier,
+      key: record.factKey,
+      expression: record.expression
+    };
+    addGugudanAggregate(factMap, fact, {
+      attempts: 1,
+      correct: record.correct ? 1 : 0,
+      wrong: record.correct ? 0 : 1,
+      lastWrongAt: record.correct ? '' : record.answeredAt
+    });
+  });
+  return factMap;
+}
+
+function parseGugudanCsvAggregate(text) {
+  const rows = csvRowsToObjects(text);
+  const factMap = new Map();
+  const studentIds = new Set();
+  rows.forEach((row) => {
+    const studentId = String(row['학생번호'] || '').trim();
+    if (studentId) studentIds.add(studentId);
+    const rowType = String(row['행구분'] || '').trim();
+    const expression = String(row['식'] || row['문항'] || '').trim();
+    if (rowType && rowType !== '문항') return;
+    if (!expression) return;
+    const fact = getGugudanFact({ text: expression });
+    if (!fact) return;
+    addGugudanAggregate(factMap, fact, {
+      attempts: getCsvNumber(row['시도']),
+      correct: getCsvNumber(row['정답']),
+      wrong: getCsvNumber(row['오답']),
+      lastWrongAt: row['최근오답시각']
+    });
+  });
+  return { factMap, studentIds };
+}
+
+function getSortedGugudanFacts(factMap) {
+  return Array.from(factMap.values()).sort((left, right) => (
+    left.dan - right.dan || left.multiplier - right.multiplier
+  ));
+}
+
+function getGugudanDanSummary(factMap) {
+  const danMap = new Map();
+  getSortedGugudanFacts(factMap).forEach((item) => {
+    if (!danMap.has(item.dan)) {
+      danMap.set(item.dan, { dan: item.dan, attempts: 0, correct: 0, wrong: 0 });
+    }
+    const dan = danMap.get(item.dan);
+    dan.attempts += item.attempts;
+    dan.correct += item.correct;
+    dan.wrong += item.wrong;
+  });
+  return Array.from(danMap.values()).sort((left, right) => left.dan - right.dan);
+}
+
+function buildGugudanCsv(studentId, factMap, options = {}) {
+  const createdAt = options.createdAt || new Date();
+  const createdText = formatCsvDateTime(createdAt);
+  const minutes = options.minutes || session?.minutes || '';
+  const sourceLabel = options.sourceLabel || '구구단';
+  const rows = [[
+    '행구분',
+    '학생번호',
+    '생성일시',
+    '퀴즈팩',
+    '선택시간분',
+    '단',
+    '식',
+    '시도',
+    '정답',
+    '오답',
+    '정답률',
+    '최근오답시각'
+  ]];
+  getGugudanDanSummary(factMap).forEach((item) => {
+    rows.push([
+      '단요약',
+      studentId,
+      createdText,
+      sourceLabel,
+      minutes,
+      `${item.dan}단`,
+      '',
+      item.attempts,
+      item.correct,
+      item.wrong,
+      formatCsvAccuracy(item.correct, item.attempts),
+      ''
+    ]);
+  });
+  getSortedGugudanFacts(factMap).forEach((item) => {
+    rows.push([
+      '문항',
+      studentId,
+      createdText,
+      sourceLabel,
+      minutes,
+      `${item.dan}단`,
+      item.expression,
+      item.attempts,
+      item.correct,
+      item.wrong,
+      formatCsvAccuracy(item.correct, item.attempts),
+      item.lastWrongAt || ''
+    ]);
+  });
+  return rows.map((row) => row.map(escapeCsv).join(',')).join('\n');
+}
+
+function downloadCsvFile(filename, csvText) {
+  const blob = new Blob([`\uFEFF${csvText}`], { type: 'text/csv;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 0);
 }
 
 function isQuizImageAsset(value) {
@@ -1110,6 +1382,7 @@ function buildSession(questions) {
     feedbackKind: '',
     playerQuizStates: Array.from({ length: selectedPlayers }, (_, index) => createQuizState(index, questions)),
     battles: Array.from({ length: sharedBattle ? 1 : selectedPlayers }, (_, index) => createBattleState(index)),
+    gugudanRecords: [],
     battle: null
   };
   sessionState.battle = sessionState.battles[0];
@@ -2331,6 +2604,25 @@ function applyQuizRewards(player, question, correct, quizState = session?.battle
   return reward;
 }
 
+function recordGugudanAnswer(question, choice, correct, quizState) {
+  if (!session || session.packId !== 'gugudan' || session.sharedBattle || session.players.length !== 1) return;
+  const fact = getGugudanFact(question);
+  if (!fact) return;
+  const startedAtMs = Number(quizState?.questionStartedAtMs) || 0;
+  session.gugudanRecords.push({
+    factKey: fact.key,
+    dan: fact.dan,
+    multiplier: fact.multiplier,
+    expression: fact.expression,
+    questionText: question.text || '',
+    answer: String(question.answer),
+    selectedChoice: String(choice),
+    correct: Boolean(correct),
+    responseMs: startedAtMs ? Math.max(0, Date.now() - startedAtMs) : 0,
+    answeredAt: new Date().toISOString()
+  });
+}
+
 function submitAnswer(choice, battleIndex = currentBattleIndex) {
   if (!session) return;
   setBattleContext(battleIndex);
@@ -2347,6 +2639,7 @@ function submitAnswer(choice, battleIndex = currentBattleIndex) {
   quizState.selectedChoice = choice;
   const activePlayer = session.players[battleIndex] || getActivePlayer();
   const correct = choice === String(quizState.currentQuestion.answer);
+  recordGugudanAnswer(quizState.currentQuestion, choice, correct, quizState);
   if (correct) {
     activePlayer.correct += 1;
     const reward = applyQuizRewards(activePlayer, quizState.currentQuestion, true, quizState);
@@ -4204,6 +4497,126 @@ function summarizeSession() {
   };
 }
 
+function isGugudanSoloRecordResult() {
+  return Boolean(session && session.packId === 'gugudan' && !session.sharedBattle && session.players.length === 1);
+}
+
+function getCurrentGugudanFactMap() {
+  return createGugudanAggregateFromRecords(session?.gugudanRecords || []);
+}
+
+function getGugudanWeaknessText(factMap) {
+  const danItems = getGugudanDanSummary(factMap)
+    .filter((item) => item.attempts > 0)
+    .sort((left, right) => right.wrong - left.wrong || left.dan - right.dan);
+  if (!danItems.length) return '아직 저장할 구구단 풀이 기록이 없습니다.';
+  const wrongDanItems = danItems.filter((item) => item.wrong > 0).slice(0, 3);
+  if (!wrongDanItems.length) return '이번 판 오답 없음 · 모든 풀이가 정답입니다.';
+  const factItems = getSortedGugudanFacts(factMap)
+    .filter((item) => item.wrong > 0)
+    .sort((left, right) => right.wrong - left.wrong || left.dan - right.dan || left.multiplier - right.multiplier)
+    .slice(0, 3);
+  const danText = wrongDanItems.map((item) => `${item.dan}단 ${item.wrong}회`).join(' · ');
+  const factText = factItems.map((item) => `${item.expression} ${item.wrong}회`).join(' · ');
+  return `오답이 많은 단: ${danText}${factText ? ` / 문항: ${factText}` : ''}`;
+}
+
+function setGugudanRecordStatus(message = '', kind = '') {
+  if (!elements.gugudanRecordStatus) return;
+  elements.gugudanRecordStatus.textContent = message;
+  elements.gugudanRecordStatus.classList.toggle('is-error', kind === 'error');
+  elements.gugudanRecordStatus.classList.toggle('is-success', kind === 'success');
+}
+
+function renderGugudanRecordPanel() {
+  const panel = elements.gugudanRecordPanel;
+  const resultModal = $('.result-modal', elements.resultScreen);
+  if (!panel) return;
+  const visible = isGugudanSoloRecordResult();
+  panel.classList.toggle('is-hidden', !visible);
+  resultModal?.classList.toggle('has-gugudan-record', visible);
+  if (!visible) {
+    setGugudanRecordStatus();
+    return;
+  }
+  const factMap = getCurrentGugudanFactMap();
+  const hasRecords = factMap.size > 0;
+  const summaryText = getGugudanWeaknessText(factMap);
+  const copy = $('.gugudan-record-copy p', panel);
+  if (copy) {
+    copy.textContent = `${summaryText} 학생번호는 파일명과 CSV에만 들어가며 앱 안에는 저장하지 않습니다.`;
+  }
+  if (elements.gugudanDownloadCurrentButton) elements.gugudanDownloadCurrentButton.disabled = !hasRecords;
+  if (elements.gugudanMergeCsvButton) elements.gugudanMergeCsvButton.disabled = !hasRecords;
+  setGugudanRecordStatus(hasRecords ? '같은 학생의 이전 기록 CSV를 선택할 때만 누적하세요.' : '기록할 구구단 풀이가 없습니다.', hasRecords ? '' : 'error');
+}
+
+function getStudentIdForCsv() {
+  const raw = elements.gugudanStudentId?.value || '';
+  const safe = getSafeStudentId(raw);
+  if (elements.gugudanStudentId && safe !== raw.trim()) {
+    elements.gugudanStudentId.value = safe;
+  }
+  if (!safe) {
+    setGugudanRecordStatus('학생번호를 입력하세요. 예: 12', 'error');
+    elements.gugudanStudentId?.focus();
+    return '';
+  }
+  return safe;
+}
+
+function getGugudanCsvFilename(studentId, merged = false) {
+  const stamp = formatFileTimestamp(new Date());
+  return `gugudan-student-${studentId}${merged ? '-merged' : ''}-${stamp}.csv`;
+}
+
+function downloadCurrentGugudanCsv() {
+  if (!isGugudanSoloRecordResult()) return;
+  const studentId = getStudentIdForCsv();
+  if (!studentId) return;
+  const factMap = getCurrentGugudanFactMap();
+  if (!factMap.size) {
+    setGugudanRecordStatus('저장할 구구단 풀이 기록이 없습니다.', 'error');
+    return;
+  }
+  const csv = buildGugudanCsv(studentId, factMap, { minutes: session.minutes, sourceLabel: session.packLabel });
+  downloadCsvFile(getGugudanCsvFilename(studentId), csv);
+  setGugudanRecordStatus('이번 기록 CSV를 내려받았습니다.', 'success');
+}
+
+async function mergeAndDownloadGugudanCsv(file) {
+  if (!isGugudanSoloRecordResult() || !file) return;
+  const studentId = getStudentIdForCsv();
+  if (!studentId) return;
+  try {
+    const previousText = await file.text();
+    const previous = parseGugudanCsvAggregate(previousText);
+    const previousStudentIds = Array.from(previous.studentIds).filter(Boolean);
+    if (previousStudentIds.length && !previousStudentIds.includes(studentId)) {
+      setGugudanRecordStatus(`선택한 CSV의 학생번호(${previousStudentIds.join(', ')})가 현재 입력값과 다릅니다.`, 'error');
+      return;
+    }
+    const mergedMap = new Map(previous.factMap);
+    getCurrentGugudanFactMap().forEach((item) => {
+      addGugudanAggregate(mergedMap, {
+        dan: item.dan,
+        multiplier: item.multiplier,
+        key: item.expression,
+        expression: item.expression
+      }, item);
+    });
+    if (!mergedMap.size) {
+      setGugudanRecordStatus('합칠 수 있는 구구단 기록 CSV가 아닙니다.', 'error');
+      return;
+    }
+    const csv = buildGugudanCsv(studentId, mergedMap, { minutes: session.minutes, sourceLabel: session.packLabel });
+    downloadCsvFile(getGugudanCsvFilename(studentId, true), csv);
+    setGugudanRecordStatus('이전 기록과 이번 기록을 합친 CSV를 내려받았습니다.', 'success');
+  } catch (error) {
+    setGugudanRecordStatus('CSV 파일을 읽지 못했습니다. 이 앱에서 받은 기록 CSV인지 확인하세요.', 'error');
+  }
+}
+
 function renderResult() {
   if (!session) return;
   const summary = summarizeSession();
@@ -4338,6 +4751,7 @@ function renderResult() {
     `;
   }).join('')}
   `;
+  renderGugudanRecordPanel();
 }
 
 function finishSession() {
@@ -4467,6 +4881,17 @@ function bindEvents() {
   elements.startButton.addEventListener('click', startSelectedGame);
   elements.exitButton.addEventListener('click', abandonSession);
   elements.backSetupButton.addEventListener('click', abandonSession);
+  elements.gugudanDownloadCurrentButton?.addEventListener('click', downloadCurrentGugudanCsv);
+  elements.gugudanMergeCsvButton?.addEventListener('click', () => {
+    if (!getStudentIdForCsv()) return;
+    if (!elements.gugudanRecordFile) return;
+    elements.gugudanRecordFile.value = '';
+    elements.gugudanRecordFile.click();
+  });
+  elements.gugudanRecordFile?.addEventListener('change', () => {
+    const file = elements.gugudanRecordFile.files?.[0];
+    mergeAndDownloadGugudanCsv(file);
+  });
   elements.restartSameButton.addEventListener('click', async () => {
     stopSessionTimer();
     stopBattleLoop();

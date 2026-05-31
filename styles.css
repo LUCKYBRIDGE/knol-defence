@@ -2939,7 +2939,7 @@ select {
   box-shadow: 0 28px 70px rgba(3, 22, 35, 0.42);
   padding: clamp(14px, 2vw, 22px);
   display: grid;
-  grid-template-rows: auto auto minmax(0, 1fr) auto;
+  grid-template-rows: auto auto minmax(0, 1fr) auto auto;
   gap: clamp(10px, 1.4vw, 16px);
 }
 
@@ -2949,6 +2949,14 @@ select {
   max-height: calc(100dvh - clamp(18px, 3.6vw, 44px));
   grid-template-rows: auto minmax(0, 1fr) auto;
   gap: clamp(8px, 1.2vw, 14px);
+}
+
+.result-modal.has-gugudan-record {
+  height: calc(100dvh - clamp(16px, 3.2vw, 38px));
+  max-height: calc(100dvh - clamp(16px, 3.2vw, 38px));
+  grid-template-rows: auto minmax(0, 1fr) auto auto;
+  gap: clamp(7px, 1vw, 10px);
+  overflow: hidden;
 }
 
 .result-header {
@@ -2990,6 +2998,16 @@ select {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 10px;
+}
+
+.result-modal.has-gugudan-record .result-grid {
+  min-height: 0;
+  overflow: auto;
+  gap: 7px;
+}
+
+.result-modal.has-gugudan-record .player-results {
+  display: none;
 }
 
 .result-session-grid {
@@ -3067,6 +3085,11 @@ select {
   align-items: center;
 }
 
+.result-modal.has-gugudan-record .result-battle-card {
+  min-height: 118px;
+  padding: 12px;
+}
+
 .result-battle-main:only-child {
   grid-column: 1 / -1;
 }
@@ -3086,6 +3109,10 @@ select {
   letter-spacing: 0;
 }
 
+.result-modal.has-gugudan-record .result-battle-main strong {
+  font-size: clamp(44px, 5.4vw, 72px);
+}
+
 .result-battle-main span {
   display: block;
   margin-top: 10px;
@@ -3099,6 +3126,11 @@ select {
   align-content: center;
   border-color: rgba(15, 118, 110, 0.22);
   background: linear-gradient(180deg, #ffffff, #edfafa);
+}
+
+.result-modal.has-gugudan-record .result-tile {
+  min-height: 62px;
+  padding: 6px 8px;
 }
 
 .result-tile.is-score {
@@ -3116,12 +3148,21 @@ select {
   min-height: 132px;
 }
 
+.result-modal.has-gugudan-record .result-tile.is-kill,
+.result-modal.has-gugudan-record .result-tile.is-hp {
+  min-height: 76px;
+}
+
 .result-tile.is-time {
   grid-column: span 2;
 }
 
 .result-tile span {
   font-size: clamp(20px, 2.5vw, 34px);
+}
+
+.result-modal.has-gugudan-record .result-tile span {
+  font-size: clamp(16px, 1.8vw, 24px);
 }
 
 .result-tile.is-score span {
@@ -3328,6 +3369,88 @@ select {
   text-align: right;
 }
 
+.gugudan-record-panel {
+  min-width: 0;
+  border: 1px solid rgba(15, 118, 110, 0.24);
+  border-radius: var(--radius);
+  background: linear-gradient(180deg, #ffffff, #effafa);
+  padding: 10px;
+  display: grid;
+  grid-template-columns: minmax(220px, 1.2fr) minmax(140px, 0.5fr) minmax(260px, 0.9fr);
+  align-items: end;
+  gap: 10px;
+}
+
+.gugudan-record-copy {
+  min-width: 0;
+}
+
+.gugudan-record-copy b {
+  display: block;
+  color: #0f3b4a;
+  font-size: 14px;
+  font-weight: 900;
+}
+
+.gugudan-record-copy p {
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1.35;
+}
+
+.gugudan-student-field {
+  min-width: 0;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 900;
+}
+
+.gugudan-student-field input {
+  width: 100%;
+  min-height: 38px;
+  margin-top: 4px;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  background: #ffffff;
+  color: var(--ink);
+  padding: 0 10px;
+  font: inherit;
+  font-size: 15px;
+  font-weight: 900;
+}
+
+.gugudan-record-actions {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.gugudan-record-actions .primary-action,
+.gugudan-record-actions .ghost-action {
+  min-height: 38px;
+  padding-inline: 8px;
+  font-size: 12px;
+}
+
+.gugudan-record-status {
+  grid-column: 1 / -1;
+  min-height: 18px;
+  color: #0f766e;
+  font-size: 11px;
+  font-weight: 900;
+}
+
+.gugudan-record-status.is-error {
+  color: #b91c1c;
+}
+
+.gugudan-record-status.is-success {
+  color: #166534;
+}
+
 .result-actions {
   margin-top: 0;
   padding-top: 2px;
@@ -3393,6 +3516,16 @@ select {
 
   .player-results.player-count-1:not(.is-primary-results) {
     display: none;
+  }
+
+  .gugudan-record-panel {
+    grid-template-columns: minmax(0, 1fr);
+    align-items: stretch;
+    gap: 8px;
+  }
+
+  .gugudan-record-actions {
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 
