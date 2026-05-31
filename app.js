@@ -202,6 +202,8 @@ const BATTLESHIP_DEFEAT_SPAWN_RESTART_MS = 420;
 const BATTLESHIP_DEFEAT_PENALTY_MIN = 180;
 const BATTLESHIP_DEFEAT_PENALTY_SCORE_RATIO = 0.12;
 const BATTLESHIP_DEFEAT_PENALTY_WAVE_STEP = 45;
+const PROJECTILE_RENDER_RADIUS_RATIO = 0.66;
+const PROJECTILE_RENDER_STROKE_WIDTH = 1.35;
 const EARLY_ATTACK_SLOW_WINDOW_SEC = 70;
 const EARLY_ATTACK_SLOW_MAX_RATIO = 1.22;
 const QUIZ_SCORE_BASE = 120;
@@ -3802,6 +3804,10 @@ function isDrawAreaVisible(x, y, radius, width, height, margin = 0) {
     && y - extent <= height;
 }
 
+function getProjectileRenderRadius(projectile) {
+  return Math.max(3, (Number(projectile?.radius) || 0) * PROJECTILE_RENDER_RADIUS_RATIO);
+}
+
 function drawProjectileGroup(ctx, projectiles, width, height, hasExplosion) {
   let drew = false;
   ctx.beginPath();
@@ -3809,9 +3815,10 @@ function drawProjectileGroup(ctx, projectiles, width, height, hasExplosion) {
     const projectile = projectiles[index];
     if (!projectile || projectile.removed) continue;
     if (Boolean(projectile.explosionRadius > 0) !== hasExplosion) continue;
-    if (!isDrawAreaVisible(projectile.x, projectile.y, projectile.radius, width, height, 8)) continue;
-    ctx.moveTo(projectile.x + projectile.radius, projectile.y);
-    ctx.arc(projectile.x, projectile.y, projectile.radius, 0, Math.PI * 2);
+    const renderRadius = getProjectileRenderRadius(projectile);
+    if (!isDrawAreaVisible(projectile.x, projectile.y, renderRadius, width, height, 8)) continue;
+    ctx.moveTo(projectile.x + renderRadius, projectile.y);
+    ctx.arc(projectile.x, projectile.y, renderRadius, 0, Math.PI * 2);
     drew = true;
   }
   if (!drew) return;
@@ -3822,7 +3829,7 @@ function drawProjectileGroup(ctx, projectiles, width, height, hasExplosion) {
 function drawProjectiles(ctx, projectiles, width, height) {
   if (!Array.isArray(projectiles) || !projectiles.length) return;
   ctx.save();
-  ctx.lineWidth = 2;
+  ctx.lineWidth = PROJECTILE_RENDER_STROKE_WIDTH;
   ctx.fillStyle = '#f9e27d';
   ctx.strokeStyle = 'rgba(120,53,15,0.55)';
   drawProjectileGroup(ctx, projectiles, width, height, false);
