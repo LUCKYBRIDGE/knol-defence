@@ -721,6 +721,15 @@ select {
   line-height: 1.15;
 }
 
+.start-loading-card p {
+  margin: 0;
+  color: rgba(240, 253, 250, 0.9);
+  font-size: clamp(13px, 1.6vw, 16px);
+  font-weight: 800;
+  line-height: 1.45;
+  word-break: keep-all;
+}
+
 .start-loading-bar {
   height: 12px;
   overflow: hidden;
