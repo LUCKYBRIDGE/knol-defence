@@ -537,15 +537,12 @@ function getResolutionPlayerLimit() {
 
 function getPlayerLimitInfo(resolvedMode = getResolvedDisplayMode()) {
   const displayLimit = getDisplayModePlayerLimit(resolvedMode);
-  if (resolvedMode === 'tablet') {
-    return { limit: displayLimit, displayLimit, resolutionLimit: displayLimit, reason: '' };
-  }
   const resolutionLimit = getResolutionPlayerLimit();
-  const limit = Math.min(displayLimit, resolutionLimit);
-  const reason = resolutionLimit < displayLimit
-    ? `현재 화면 크기에서는 ${limit}명까지 안정적으로 플레이할 수 있습니다.`
+  const recommendedLimit = Math.min(displayLimit, resolutionLimit);
+  const reason = recommendedLimit < 4
+    ? `현재 화면에서는 ${recommendedLimit}명까지 권장합니다. 더 많은 인원은 비추천이지만 시작할 수 있습니다.`
     : '';
-  return { limit, displayLimit, resolutionLimit, reason };
+  return { limit: 4, recommendedLimit, displayLimit, resolutionLimit, reason };
 }
 
 function getDisplayPlayerLimit(resolvedMode = getResolvedDisplayMode()) {
@@ -584,9 +581,6 @@ function enforceDisplayModeRules() {
   const resolvedMode = getResolvedDisplayMode();
   const playerLimit = getDisplayPlayerLimit(resolvedMode);
   selectedPlayers = clamp(selectedPlayers, 1, playerLimit);
-  if (resolvedMode === 'mobile' || playerLimit <= 1) {
-    selectedMode = 'solo';
-  }
   if (resolvedMode === 'tablet' && selectedPlayers > 1) {
     selectedMode = 'coop';
   }
@@ -613,13 +607,11 @@ function updateSetupSummary(options = {}) {
 
   $$('.option-button', elements.modeOptions).forEach((button) => {
     const forcedTabletCoop = resolvedMode === 'tablet' && selectedPlayers > 1 && button.dataset.mode === 'solo';
-    const forcedMobileSolo = resolvedMode === 'mobile' && button.dataset.mode === 'coop';
-    const forcedLowResolutionSolo = limitInfo.limit <= 1 && button.dataset.mode === 'coop';
-    const unavailable = forcedTabletCoop || forcedMobileSolo || forcedLowResolutionSolo;
+    const unavailable = forcedTabletCoop;
     const modeId = button.dataset.mode;
     button.textContent = getModeLabel(modeId, { resolvedMode, playerCount: selectedPlayers });
     button.disabled = unavailable;
-    button.title = forcedLowResolutionSolo ? limitInfo.reason : '';
+    button.title = forcedTabletCoop ? '태블릿에서 여러 명이 플레이할 때는 함께 풀기로 진행합니다.' : '';
     button.classList.toggle('is-disabled', unavailable);
     button.classList.toggle('is-long-label', modeId === 'coop' && resolvedMode === 'tablet' && selectedPlayers === 2);
     button.classList.toggle('is-selected', modeId === selectedMode);
@@ -627,19 +619,22 @@ function updateSetupSummary(options = {}) {
   });
   $$('.option-button', elements.playerOptions).forEach((button) => {
     const players = Number(button.dataset.players);
-    const unavailable = players > limitInfo.limit;
-    button.textContent = getPlayerCountLabel(players, resolvedMode);
-    button.disabled = unavailable;
-    button.title = unavailable ? (limitInfo.reason || `${resolvedMode === 'mobile' ? '모바일' : '현재'} 모드에서는 ${limitInfo.limit}명까지 플레이할 수 있습니다.`) : '';
-    button.classList.toggle('is-disabled', unavailable);
+    const notRecommended = players > limitInfo.recommendedLimit;
+    const label = getPlayerCountLabel(players, resolvedMode);
+    button.innerHTML = `${escapeHtml(label)}${notRecommended ? ' <small class="option-warning">비추천</small>' : ''}`;
+    button.disabled = false;
+    button.title = notRecommended ? limitInfo.reason : '';
+    button.classList.remove('is-disabled');
+    button.classList.toggle('is-not-recommended', notRecommended);
     button.classList.toggle('is-long-label', resolvedMode === 'tablet' && players === 2);
     button.classList.toggle('is-selected', players === selectedPlayers);
     button.setAttribute('aria-pressed', String(players === selectedPlayers));
-    button.setAttribute('aria-disabled', String(unavailable));
+    button.setAttribute('aria-disabled', 'false');
   });
 
   if (!(options.keepError && setupMessageKind === 'error')) {
-    setSetupMessage(limitInfo.reason, limitInfo.reason ? 'note' : '');
+    const recommendationMessage = selectedPlayers > limitInfo.recommendedLimit ? limitInfo.reason : '';
+    setSetupMessage(recommendationMessage, recommendationMessage ? 'note' : '');
   }
 }
 

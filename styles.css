@@ -607,11 +607,29 @@ select {
   line-height: 1.12;
 }
 
+.option-button .option-warning {
+  display: block;
+  margin-top: 2px;
+  color: #b45309;
+  font-size: 9px;
+  font-weight: 900;
+  line-height: 1;
+}
+
+.option-button.is-not-recommended {
+  border-color: rgba(217, 119, 6, 0.42);
+  background: #fffaf0;
+}
+
 .option-button.is-selected,
 .character-button.is-selected {
   color: #ffffff;
   border-color: var(--primary);
   background: var(--primary);
+}
+
+.option-button.is-selected .option-warning {
+  color: #fde68a;
 }
 
 .option-button.is-disabled,
