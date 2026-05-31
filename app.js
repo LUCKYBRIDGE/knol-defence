@@ -518,6 +518,25 @@ function getSafeStudentId(value) {
     .slice(0, 24);
 }
 
+function countTextChars(value) {
+  return Array.from(String(value ?? '').trim()).length;
+}
+
+function getTextScaleClass(value, prefix) {
+  const length = countTextChars(value);
+  if (length <= 3) return `${prefix}-tiny`;
+  if (length <= 8) return `${prefix}-short`;
+  if (length <= 18) return `${prefix}-medium`;
+  return `${prefix}-long`;
+}
+
+function getChoiceTextClasses(value) {
+  const text = String(value ?? '').trim();
+  const classes = [getTextScaleClass(text, 'choice-text')];
+  if (/^-?\d+(?:[.,]\d+)?$/.test(text)) classes.push('is-numeric-choice');
+  return classes;
+}
+
 function getGugudanFact(question) {
   const text = String(question?.text || question?.prompt || '').trim();
   const match = text.match(/(\d+)\s*(?:x|×|\*)\s*(\d+)/i);
@@ -2319,7 +2338,11 @@ function renderChoiceButton(choice, index, question, battle, playerIndex = curre
   const isAnswer = choiceValue === String(question.answer);
   const isSelected = choiceValue === String(battle?.selectedChoice || '');
   const choiceClasses = ['choice-button'];
-  if (hasImageChoice) choiceClasses.push('has-image-choice');
+  if (hasImageChoice) {
+    choiceClasses.push('has-image-choice');
+  } else {
+    choiceClasses.push(...getChoiceTextClasses(choiceValue));
+  }
   if (isLocked && isAnswer) {
     choiceClasses.push('is-correct');
   } else if (isLocked && isSelected) {
@@ -2452,6 +2475,7 @@ function buildQuizCardHtml(playerIndex = currentBattleIndex) {
   const autoProgressText = getQuizAutoProgressText(quizState);
   const hasQuestionImage = Boolean(question.hasQuestionImage && question.image);
   const hasChoiceImages = question.choices.some(isQuizImageAsset);
+  const questionTextValue = question.text || question.prompt || '';
   const modalClasses = [
     'quiz-modal-card',
     'battle-quiz-card',
@@ -2463,7 +2487,7 @@ function buildQuizCardHtml(playerIndex = currentBattleIndex) {
     ? ''
     : (hasQuestionImage
     ? `<div class="question-image-wrap"><img src="${question.image}" alt="${escapeHtml(question.prompt)}" /></div>`
-    : `<p class="question-text">${escapeHtml(question.text || question.prompt)}</p>`);
+    : `<p class="question-text ${getTextScaleClass(questionTextValue, 'question-text')}">${escapeHtml(questionTextValue)}</p>`);
 
   return `
     <div class="${modalClasses.join(' ')}" data-player-index="${playerIndex}" data-quiz-owner="${playerIndex}" role="dialog" aria-labelledby="quiz-modal-title-${playerIndex}">
@@ -2490,6 +2514,82 @@ function buildQuizCardHtml(playerIndex = currentBattleIndex) {
   `;
 }
 
+function getQuizTextFitMax(element) {
+  const card = element.closest('.quiz-modal-card');
+  const cardWidth = card?.clientWidth || window.innerWidth || 0;
+  const cardHeight = card?.clientHeight || window.innerHeight || 0;
+  const compact = cardWidth < 360 || cardHeight < 280;
+  const veryCompact = cardWidth < 260 || cardHeight < 220;
+  if (element.matches('.question-text')) {
+    if (element.classList.contains('question-text-tiny')) return veryCompact ? 34 : (compact ? 46 : 68);
+    if (element.classList.contains('question-text-short')) return veryCompact ? 28 : (compact ? 40 : 58);
+    if (element.classList.contains('question-text-medium')) return veryCompact ? 23 : (compact ? 32 : 46);
+    return veryCompact ? 18 : (compact ? 25 : 36);
+  }
+  if (element.matches('.choice-text')) {
+    const button = element.closest('.choice-button');
+    const numeric = button?.classList.contains('is-numeric-choice');
+    if (numeric) return veryCompact ? 26 : (compact ? 40 : 62);
+    if (button?.classList.contains('choice-text-tiny')) return veryCompact ? 24 : (compact ? 34 : 52);
+    if (button?.classList.contains('choice-text-short')) return veryCompact ? 21 : (compact ? 30 : 44);
+    if (button?.classList.contains('choice-text-medium')) return veryCompact ? 17 : (compact ? 24 : 34);
+    return veryCompact ? 13 : (compact ? 18 : 26);
+  }
+  return 24;
+}
+
+function getQuizTextFitContainer(element) {
+  if (element.matches('.choice-text')) return element.closest('.choice-button') || element;
+  if (element.matches('.question-text')) return element.closest('.quiz-question-body') || element;
+  return element.closest('.quiz-title-block') || element;
+}
+
+function quizTextFits(element, container) {
+  const pad = 2;
+  if (element.matches('.choice-text')) {
+    const button = container;
+    return button.scrollWidth <= button.clientWidth + pad
+      && button.scrollHeight <= button.clientHeight + pad;
+  }
+  return element.scrollWidth <= container.clientWidth + pad
+    && element.scrollHeight <= container.clientHeight + pad;
+}
+
+function fitQuizTextElement(element) {
+  const container = getQuizTextFitContainer(element);
+  if (!container || container.clientWidth < 8 || container.clientHeight < 8) return;
+  const max = getQuizTextFitMax(element);
+  const min = 8;
+  let low = min;
+  let high = max;
+  let best = min;
+  element.style.fontSize = `${min}px`;
+  for (let index = 0; index < 8; index += 1) {
+    const size = (low + high) / 2;
+    element.style.fontSize = `${size}px`;
+    if (quizTextFits(element, container)) {
+      best = size;
+      low = size;
+    } else {
+      high = size;
+    }
+  }
+  element.style.fontSize = `${Math.floor(best * 10) / 10}px`;
+}
+
+function fitQuizText(root = elements.gameStage) {
+  if (!root) return;
+  const targets = [
+    ...$$('.quiz-modal-card .question-text', root),
+    ...$$('.quiz-modal-card .choice-button:not(.has-image-choice) .choice-text', root)
+  ];
+  targets.forEach(fitQuizTextElement);
+}
+
+function scheduleQuizTextFit(root = elements.gameStage) {
+  window.requestAnimationFrame(() => fitQuizText(root));
+}
+
 function renderCoopQuizOverlay() {
   if (!session || !isSharedBattleSession()) return;
   const root = getBattleRoot(0);
@@ -2502,6 +2602,7 @@ function renderCoopQuizOverlay() {
       layer.innerHTML = isOpen ? buildQuizCardHtml(playerIndex) : '';
       $(`.tablet-player-zone[data-player-index="${playerIndex}"]`, root)?.classList.toggle('is-quiz-open', isOpen);
     });
+    scheduleQuizTextFit(root);
     return;
   }
   const overlay = $('[data-ref="coop-quiz-split-layer"]', root);
@@ -2529,6 +2630,7 @@ function renderCoopQuizOverlay() {
       }).join('')}
     </div>
   `;
+  scheduleQuizTextFit(overlay);
 }
 
 function renderQuestion(battleIndex = currentBattleIndex) {
@@ -2545,6 +2647,7 @@ function renderQuestion(battleIndex = currentBattleIndex) {
   if (!layer) return;
   layer.classList.remove('is-hidden');
   layer.innerHTML = buildQuizCardHtml(battleIndex);
+  scheduleQuizTextFit(layer);
 }
 
 function renderPlay() {
@@ -5027,6 +5130,7 @@ function bindEvents() {
       session.battles.forEach((battle) => {
         withBattleContext(battle.playerIndex, () => drawBattle());
       });
+      scheduleQuizTextFit(elements.gameStage);
     }
   }, { passive: true });
 }

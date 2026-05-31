@@ -2921,7 +2921,29 @@ select {
 }
 
 .choice-button .choice-text {
+  min-width: 0;
+  max-width: 100%;
+  max-height: 100%;
+  display: block;
   overflow-wrap: anywhere;
+  line-height: 1.08;
+  letter-spacing: 0;
+  font-size: clamp(16px, 2.2vw, 26px);
+}
+
+.choice-button.choice-text-tiny .choice-text,
+.choice-button.choice-text-short .choice-text {
+  font-size: clamp(20px, 3.2vw, 42px);
+}
+
+.choice-button.is-numeric-choice {
+  text-align: center;
+}
+
+.choice-button.is-numeric-choice .choice-text {
+  justify-self: center;
+  font-size: clamp(24px, 4vw, 56px);
+  line-height: 1;
 }
 
 .choice-button.has-image-choice {
