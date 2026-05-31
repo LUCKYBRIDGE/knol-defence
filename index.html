@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>놀퀴즈 거북선 디펜스</title>
-    <link rel="stylesheet" href="./styles.css?v=20260531-gugudan-records" />
+    <link rel="stylesheet" href="./styles.css?v=20260531-gugudan-save" />
   </head>
   <body class="theme-turtle" data-screen="setup">
     <div class="app-shell">
@@ -108,18 +108,18 @@
             </div>
             <div class="result-grid" id="result-grid"></div>
             <div class="player-results" id="player-results"></div>
-            <section class="gugudan-record-panel is-hidden" id="gugudan-record-panel" aria-label="구구단 학습 기록 CSV">
+            <section class="gugudan-record-panel is-hidden" id="gugudan-record-panel" aria-label="구구단 학습 기록 저장">
               <div class="gugudan-record-copy">
-                <b>구구단 학습 기록 CSV</b>
-                <p>학생번호는 파일명과 CSV에만 들어가며, 앱 안에는 저장하지 않습니다.</p>
+                <b>구구단 학습 기록 저장</b>
+                <p>학생번호는 기록 파일에만 들어가며, 앱 안에는 저장하지 않습니다.</p>
               </div>
               <label class="gugudan-student-field" for="gugudan-student-id">
                 학생번호
                 <input id="gugudan-student-id" type="text" inputmode="numeric" autocomplete="off" placeholder="예: 12" maxlength="24" />
               </label>
               <div class="gugudan-record-actions">
-                <button class="primary-action" type="button" id="gugudan-download-current-button">이번 기록 CSV 받기</button>
-                <button class="ghost-action" type="button" id="gugudan-merge-csv-button">이전 기록과 합쳐 받기</button>
+                <button class="primary-action" type="button" id="gugudan-download-current-button">이번 기록 저장하기</button>
+                <button class="ghost-action" type="button" id="gugudan-merge-csv-button">기존 기록 불러오기</button>
                 <input class="is-hidden" id="gugudan-record-file" type="file" accept=".csv,text/csv" />
               </div>
               <div class="gugudan-record-status" id="gugudan-record-status" role="status"></div>
@@ -134,6 +134,6 @@
     </div>
 
     <script src="./assets/quiz/data/inline-packs.js"></script>
-    <script src="./app.js?v=20260531-gugudan-records"></script>
+    <script src="./app.js?v=20260531-gugudan-save"></script>
   </body>
 </html>

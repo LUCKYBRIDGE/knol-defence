@@ -298,6 +298,7 @@ let setupMessageKind = '';
 let startLoading = false;
 let combatAssetsWarmed = false;
 let session = null;
+let gugudanPreviousRecord = null;
 let battleCanvas = null;
 let battleCtx = null;
 let battleViews = [];
@@ -4426,6 +4427,7 @@ function startTimer() {
 
 async function startSelectedGame() {
   if (startLoading) return;
+  gugudanPreviousRecord = null;
   setSetupMessage();
   enforceDisplayModeRules();
   if (!selectedMinutes) {
@@ -4544,11 +4546,11 @@ function renderGugudanRecordPanel() {
   const summaryText = getGugudanWeaknessText(factMap);
   const copy = $('.gugudan-record-copy p', panel);
   if (copy) {
-    copy.textContent = `${summaryText} 학생번호는 파일명과 CSV에만 들어가며 앱 안에는 저장하지 않습니다.`;
+    copy.textContent = `${summaryText} 학생번호는 기록 파일에만 들어가며 앱 안에는 저장하지 않습니다.`;
   }
   if (elements.gugudanDownloadCurrentButton) elements.gugudanDownloadCurrentButton.disabled = !hasRecords;
   if (elements.gugudanMergeCsvButton) elements.gugudanMergeCsvButton.disabled = !hasRecords;
-  setGugudanRecordStatus(hasRecords ? '같은 학생의 이전 기록 CSV를 선택할 때만 누적하세요.' : '기록할 구구단 풀이가 없습니다.', hasRecords ? '' : 'error');
+  setGugudanRecordStatus(hasRecords ? '기존 기록을 불러오면, 학생번호가 같을 때 저장 시 자동으로 합쳐집니다.' : '기록할 구구단 풀이가 없습니다.', hasRecords ? '' : 'error');
 }
 
 function getStudentIdForCsv() {
@@ -4579,41 +4581,56 @@ function downloadCurrentGugudanCsv() {
     setGugudanRecordStatus('저장할 구구단 풀이 기록이 없습니다.', 'error');
     return;
   }
-  const csv = buildGugudanCsv(studentId, factMap, { minutes: session.minutes, sourceLabel: session.packLabel });
-  downloadCsvFile(getGugudanCsvFilename(studentId), csv);
-  setGugudanRecordStatus('이번 기록 CSV를 내려받았습니다.', 'success');
-}
-
-async function mergeAndDownloadGugudanCsv(file) {
-  if (!isGugudanSoloRecordResult() || !file) return;
-  const studentId = getStudentIdForCsv();
-  if (!studentId) return;
-  try {
-    const previousText = await file.text();
-    const previous = parseGugudanCsvAggregate(previousText);
-    const previousStudentIds = Array.from(previous.studentIds).filter(Boolean);
+  let exportMap = factMap;
+  let merged = false;
+  if (gugudanPreviousRecord) {
+    const previousStudentIds = Array.from(gugudanPreviousRecord.studentIds).filter(Boolean);
     if (previousStudentIds.length && !previousStudentIds.includes(studentId)) {
-      setGugudanRecordStatus(`선택한 CSV의 학생번호(${previousStudentIds.join(', ')})가 현재 입력값과 다릅니다.`, 'error');
+      setGugudanRecordStatus(`불러온 기록의 학생번호(${previousStudentIds.join(', ')})가 현재 입력값과 다릅니다.`, 'error');
       return;
     }
-    const mergedMap = new Map(previous.factMap);
-    getCurrentGugudanFactMap().forEach((item) => {
-      addGugudanAggregate(mergedMap, {
+    exportMap = new Map(gugudanPreviousRecord.factMap);
+    factMap.forEach((item) => {
+      addGugudanAggregate(exportMap, {
         dan: item.dan,
         multiplier: item.multiplier,
         key: item.expression,
         expression: item.expression
       }, item);
     });
-    if (!mergedMap.size) {
-      setGugudanRecordStatus('합칠 수 있는 구구단 기록 CSV가 아닙니다.', 'error');
+    merged = true;
+  }
+  const csv = buildGugudanCsv(studentId, exportMap, { minutes: session.minutes, sourceLabel: session.packLabel });
+  downloadCsvFile(getGugudanCsvFilename(studentId, merged), csv);
+  setGugudanRecordStatus(merged ? '기존 기록과 이번 기록을 합쳐 저장했습니다.' : '이번 기록을 저장했습니다.', 'success');
+}
+
+async function loadPreviousGugudanCsv(file) {
+  if (!isGugudanSoloRecordResult() || !file) return;
+  try {
+    const previousText = await file.text();
+    const previous = parseGugudanCsvAggregate(previousText);
+    if (!previous.factMap.size) {
+      gugudanPreviousRecord = null;
+      setGugudanRecordStatus('합칠 수 있는 구구단 기록 파일이 아닙니다.', 'error');
       return;
     }
-    const csv = buildGugudanCsv(studentId, mergedMap, { minutes: session.minutes, sourceLabel: session.packLabel });
-    downloadCsvFile(getGugudanCsvFilename(studentId, true), csv);
-    setGugudanRecordStatus('이전 기록과 이번 기록을 합친 CSV를 내려받았습니다.', 'success');
+    const previousStudentIds = Array.from(previous.studentIds).filter(Boolean);
+    const currentStudentId = getSafeStudentId(elements.gugudanStudentId?.value || '');
+    if (currentStudentId && previousStudentIds.length && !previousStudentIds.includes(currentStudentId)) {
+      gugudanPreviousRecord = null;
+      setGugudanRecordStatus(`선택한 기록의 학생번호(${previousStudentIds.join(', ')})가 현재 입력값과 다릅니다.`, 'error');
+      return;
+    }
+    gugudanPreviousRecord = {
+      factMap: previous.factMap,
+      studentIds: previous.studentIds,
+      fileName: file.name
+    };
+    setGugudanRecordStatus('기존 기록을 불러왔습니다. 이번 기록 저장하기를 누르면 학생번호가 같을 때 자동으로 합쳐집니다.', 'success');
   } catch (error) {
-    setGugudanRecordStatus('CSV 파일을 읽지 못했습니다. 이 앱에서 받은 기록 CSV인지 확인하세요.', 'error');
+    gugudanPreviousRecord = null;
+    setGugudanRecordStatus('기록 파일을 읽지 못했습니다. 이 앱에서 받은 기록 파일인지 확인하세요.', 'error');
   }
 }
 
@@ -4807,6 +4824,7 @@ function abandonSession() {
   session?.battles?.forEach(clearQuizAutoAdvance);
   session?.playerQuizStates?.forEach(clearQuizAutoAdvance);
   session = null;
+  gugudanPreviousRecord = null;
   syncTabletFaceLayoutBasis();
   battleCanvas = null;
   battleCtx = null;
@@ -4883,14 +4901,13 @@ function bindEvents() {
   elements.backSetupButton.addEventListener('click', abandonSession);
   elements.gugudanDownloadCurrentButton?.addEventListener('click', downloadCurrentGugudanCsv);
   elements.gugudanMergeCsvButton?.addEventListener('click', () => {
-    if (!getStudentIdForCsv()) return;
     if (!elements.gugudanRecordFile) return;
     elements.gugudanRecordFile.value = '';
     elements.gugudanRecordFile.click();
   });
   elements.gugudanRecordFile?.addEventListener('change', () => {
     const file = elements.gugudanRecordFile.files?.[0];
-    mergeAndDownloadGugudanCsv(file);
+    loadPreviousGugudanCsv(file);
   });
   elements.restartSameButton.addEventListener('click', async () => {
     stopSessionTimer();
