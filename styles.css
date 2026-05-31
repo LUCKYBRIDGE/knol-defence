@@ -737,6 +737,18 @@ select {
   white-space: nowrap;
 }
 
+.gugudan-status-actions {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  justify-content: end;
+  gap: 6px;
+}
+
+.gugudan-status-action {
+  min-width: 148px;
+}
+
 .gugudan-status-panel {
   grid-column: 1 / -1;
   min-width: 0;
@@ -748,6 +760,31 @@ select {
   font-size: 11px;
   font-weight: 800;
   line-height: 1.35;
+}
+
+.gugudan-status-heading {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 7px;
+}
+
+.gugudan-status-heading b {
+  color: #0f3b4a;
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.gugudan-status-heading span {
+  min-width: 0;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 900;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .gugudan-status-panel.is-empty {
@@ -800,6 +837,18 @@ select {
 .gugudan-status-detail p {
   margin: 0;
   color: var(--ink);
+}
+
+.gugudan-status-message {
+  margin: 7px 0 0;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 900;
+  line-height: 1.35;
+}
+
+.gugudan-status-message.is-strong {
+  color: #166534;
 }
 
 .gugudan-status-panel em {
@@ -3714,8 +3763,15 @@ select {
     align-items: stretch;
   }
 
-  .gugudan-status-check .ghost-action {
+  .gugudan-status-actions {
+    grid-template-columns: minmax(0, 1fr);
+    justify-content: stretch;
+  }
+
+  .gugudan-status-check .ghost-action,
+  .gugudan-status-action {
     width: 100%;
+    min-width: 0;
   }
 
   .brand-kicker {

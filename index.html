@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>놀퀴즈 거북선 디펜스</title>
-    <link rel="stylesheet" href="./styles.css?v=20260601-quiz-text-fit" />
+    <link rel="stylesheet" href="./styles.css?v=20260601-gugudan-merge-files" />
   </head>
   <body class="theme-turtle" data-screen="setup">
     <div class="app-shell">
@@ -69,10 +69,14 @@
               <section class="gugudan-status-check" aria-label="내 구구단 상태 확인">
                 <div class="gugudan-status-copy">
                   <b>구구단 누적 상태</b>
-                  <p>저장해 둔 기록 파일을 열어 많이 틀린 단과 문항을 확인합니다.</p>
+                  <p>저장해 둔 기록 파일을 열어 상태를 확인하거나 여러 파일을 하나로 합칩니다.</p>
                 </div>
-                <button class="ghost-action" type="button" id="gugudan-status-button">내 구구단 상태 확인</button>
+                <div class="gugudan-status-actions">
+                  <button class="ghost-action gugudan-status-action" type="button" id="gugudan-status-button">내 구구단 상태 확인</button>
+                  <button class="ghost-action gugudan-status-action" type="button" id="gugudan-merge-records-button">기록 합치기</button>
+                </div>
                 <input class="is-hidden" id="gugudan-status-file" type="file" accept=".csv,text/csv" />
+                <input class="is-hidden" id="gugudan-merge-records-file" type="file" accept=".csv,text/csv" multiple />
                 <div class="gugudan-status-panel is-empty" id="gugudan-status-panel" role="status" aria-live="polite">
                   기록 파일을 선택하면 구구단 상태가 여기에 표시됩니다.
                 </div>
@@ -131,7 +135,7 @@
               </label>
               <div class="gugudan-record-actions">
                 <button class="primary-action" type="button" id="gugudan-download-current-button">이번 기록 저장하기</button>
-                <button class="ghost-action" type="button" id="gugudan-merge-csv-button">기존 기록 불러오기</button>
+                <button class="ghost-action" type="button" id="gugudan-merge-csv-button">기존 기록에 이어 저장하기</button>
                 <input class="is-hidden" id="gugudan-record-file" type="file" accept=".csv,text/csv" />
               </div>
               <div class="gugudan-record-status" id="gugudan-record-status" role="status"></div>
@@ -146,6 +150,6 @@
     </div>
 
     <script src="./assets/quiz/data/inline-packs.js"></script>
-    <script src="./app.js?v=20260601-quiz-text-fit"></script>
+    <script src="./app.js?v=20260601-gugudan-merge-files"></script>
   </body>
 </html>
