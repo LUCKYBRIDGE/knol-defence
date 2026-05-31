@@ -4,11 +4,14 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>놀퀴즈 거북선 디펜스</title>
-    <link rel="stylesheet" href="./styles.css?v=20260601-gugudan-merge-files" />
+    <link rel="stylesheet" href="./styles.css?v=20260601-qr-button" />
   </head>
   <body class="theme-turtle" data-screen="setup">
     <div class="app-shell">
-      <button class="display-mode-toggle" type="button" id="display-mode-toggle" aria-label="화면 모드 전환">화면 자동</button>
+      <div class="top-controls" aria-label="상단 빠른 메뉴">
+        <button class="qr-toggle" type="button" id="qr-toggle" aria-label="접속 QR 크게 보기" aria-expanded="false">QR</button>
+        <button class="display-mode-toggle" type="button" id="display-mode-toggle" aria-label="화면 모드 전환">화면 자동</button>
+      </div>
       <header class="topbar">
         <div class="brand-block">
           <span class="brand-kicker">놀퀴즈 게임</span>
@@ -149,7 +152,21 @@
       </main>
     </div>
 
+    <section class="qr-modal is-hidden" id="qr-modal" role="dialog" aria-modal="true" aria-hidden="true" aria-labelledby="qr-modal-title">
+      <div class="qr-modal-card">
+        <div class="qr-modal-head">
+          <div>
+            <span class="screen-kicker">QR</span>
+            <h2 id="qr-modal-title">접속 QR</h2>
+          </div>
+          <button class="ghost-action qr-close-button" type="button" id="qr-close-button">닫기</button>
+        </div>
+        <img class="qr-modal-image" src="./assets/qr/knol-defence.svg" alt="거북선 디펜스 접속 QR" />
+        <p class="qr-modal-url">https://luckybridge.github.io/knol-defence/</p>
+      </div>
+    </section>
+
     <script src="./assets/quiz/data/inline-packs.js"></script>
-    <script src="./app.js?v=20260601-gugudan-merge-files"></script>
+    <script src="./app.js?v=20260601-qr-button"></script>
   </body>
 </html>

@@ -248,6 +248,9 @@ const elements = {
   quizPack: $('#quiz-pack'),
   playMinutes: $('#play-minutes'),
   modeOptions: $('#mode-options'),
+  qrToggle: $('#qr-toggle'),
+  qrModal: $('#qr-modal'),
+  qrCloseButton: $('#qr-close-button'),
   displayModeToggle: $('#display-mode-toggle'),
   playerOptions: $('#player-options'),
   startButton: $('#start-button'),
@@ -875,6 +878,19 @@ function nextPaint() {
   return new Promise((resolve) => {
     window.requestAnimationFrame(() => window.requestAnimationFrame(resolve));
   });
+}
+
+function setQrModalOpen(open, options = {}) {
+  const active = Boolean(open);
+  if (!elements.qrModal) return;
+  elements.qrModal.classList.toggle('is-hidden', !active);
+  elements.qrModal.setAttribute('aria-hidden', String(!active));
+  elements.qrToggle?.setAttribute('aria-expanded', String(active));
+  if (active) {
+    elements.qrCloseButton?.focus();
+  } else if (options.restoreFocus !== false) {
+    elements.qrToggle?.focus();
+  }
 }
 
 function enforceDisplayModeRules() {
@@ -5149,6 +5165,16 @@ function bindEvents() {
   });
 
   elements.displayModeToggle?.addEventListener('click', selectNextDisplayMode);
+  elements.qrToggle?.addEventListener('click', () => setQrModalOpen(true));
+  elements.qrCloseButton?.addEventListener('click', () => setQrModalOpen(false));
+  elements.qrModal?.addEventListener('click', (event) => {
+    if (event.target === elements.qrModal) setQrModalOpen(false);
+  });
+  window.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape' && elements.qrModal && !elements.qrModal.classList.contains('is-hidden')) {
+      setQrModalOpen(false);
+    }
+  });
 
   elements.tabletPromoButton?.addEventListener('click', () => {
     selectedDisplayMode = 'tablet';
