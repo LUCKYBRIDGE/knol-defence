@@ -251,6 +251,10 @@ const elements = {
   qrToggle: $('#qr-toggle'),
   qrModal: $('#qr-modal'),
   qrCloseButton: $('#qr-close-button'),
+  gugudanReportModal: $('#gugudan-report-modal'),
+  gugudanReportCloseButton: $('#gugudan-report-close-button'),
+  gugudanReportSubtitle: $('#gugudan-report-subtitle'),
+  gugudanReportBody: $('#gugudan-report-body'),
   fullscreenToggles: $$('.fullscreen-toggle'),
   displayModeToggle: $('#display-mode-toggle'),
   playerOptions: $('#player-options'),
@@ -4730,6 +4734,215 @@ function formatGugudanStatusList(items, type) {
   }).join(' / ');
 }
 
+function formatGugudanExpression(value) {
+  return String(value || '').replace(/x/gi, '×');
+}
+
+function getGugudanRiskLevel(item) {
+  const attempts = Math.max(0, Number(item?.attempts) || 0);
+  const wrong = Math.max(0, Number(item?.wrong) || 0);
+  if (!attempts) return 'none';
+  const wrongRate = wrong / attempts;
+  if (wrongRate >= 0.4 || wrong >= 3) return 'danger';
+  if (wrong > 0) return 'warning';
+  return 'ok';
+}
+
+function getGugudanRiskLabel(level) {
+  if (level === 'danger') return '집중 연습';
+  if (level === 'warning') return '다시 확인';
+  if (level === 'ok') return '안정';
+  return '기록 없음';
+}
+
+function sortGugudanWeakItems(items) {
+  return [...items].sort((left, right) => {
+    const leftRate = left.attempts ? left.wrong / left.attempts : 0;
+    const rightRate = right.attempts ? right.wrong / right.attempts : 0;
+    return (
+      right.wrong - left.wrong
+      || rightRate - leftRate
+      || right.attempts - left.attempts
+      || left.dan - right.dan
+      || (left.multiplier || 0) - (right.multiplier || 0)
+    );
+  });
+}
+
+function getGugudanReportComment(summary) {
+  if (!summary.attempts) return '아직 읽을 수 있는 구구단 풀이 기록이 없습니다.';
+  if (!summary.wrong) return '누적 오답이 없습니다. 지금 기록에서는 안정적으로 풀고 있습니다.';
+  const worstDan = summary.weakDans[0];
+  const worstFact = summary.weakFacts[0];
+  if (worstDan && worstFact) {
+    return `${worstDan.dan}단과 ${formatGugudanExpression(worstFact.expression)}을 먼저 다시 보면 효과적입니다.`;
+  }
+  if (worstDan) return `${worstDan.dan}단부터 다시 연습하면 좋습니다.`;
+  return '오답이 있는 문항부터 짧게 다시 풀어보면 좋습니다.';
+}
+
+function getGugudanDanReportItems(factMap) {
+  const danSummary = new Map(getGugudanDanSummary(factMap).map((item) => [item.dan, item]));
+  return Array.from({ length: 8 }, (_, index) => {
+    const dan = index + 2;
+    return danSummary.get(dan) || { dan, attempts: 0, correct: 0, wrong: 0 };
+  });
+}
+
+function buildGugudanReportSummary(record) {
+  const summary = getGugudanAggregateSummary(record.factMap);
+  const weakDans = sortGugudanWeakItems(getGugudanDanSummary(record.factMap).filter((item) => item.attempts > 0 && item.wrong > 0)).slice(0, 4);
+  const weakFacts = sortGugudanWeakItems(getSortedGugudanFacts(record.factMap).filter((item) => item.attempts > 0 && item.wrong > 0)).slice(0, 6);
+  return { ...summary, weakDans, weakFacts };
+}
+
+function renderGugudanWeakBars(items, type) {
+  if (!items.length) {
+    return '<p class="gugudan-report-empty">누적 오답이 없습니다.</p>';
+  }
+  const maxWrong = Math.max(1, ...items.map((item) => item.wrong));
+  return items.map((item) => {
+    const label = type === 'dan' ? `${item.dan}단` : formatGugudanExpression(item.expression);
+    const percent = item.attempts ? Math.round((item.wrong / item.attempts) * 100) : 0;
+    const width = Math.max(10, Math.round((item.wrong / maxWrong) * 100));
+    const level = getGugudanRiskLevel(item);
+    return `
+      <div class="gugudan-weak-row risk-${level}">
+        <div class="gugudan-weak-meta">
+          <strong>${escapeHtml(label)}</strong>
+          <span>오답 ${item.wrong}회 · 오답률 ${percent}%</span>
+        </div>
+        <div class="gugudan-weak-track" aria-hidden="true"><i style="width: ${width}%"></i></div>
+      </div>
+    `;
+  }).join('');
+}
+
+function renderGugudanHeatmap(factMap) {
+  const cells = ['<div class="gugudan-heatmap-cell is-label">×</div>'];
+  for (let multiplier = 1; multiplier <= 9; multiplier += 1) {
+    cells.push(`<div class="gugudan-heatmap-cell is-label">${multiplier}</div>`);
+  }
+  for (let dan = 2; dan <= 9; dan += 1) {
+    cells.push(`<div class="gugudan-heatmap-cell is-label">${dan}</div>`);
+    for (let multiplier = 1; multiplier <= 9; multiplier += 1) {
+      const key = `${dan}x${multiplier}`;
+      const item = factMap.get(key) || {
+        dan,
+        multiplier,
+        expression: key,
+        attempts: 0,
+        correct: 0,
+        wrong: 0
+      };
+      const level = getGugudanRiskLevel(item);
+      const label = `${dan}×${multiplier}`;
+      const title = item.attempts
+        ? `${label}: 시도 ${item.attempts}, 오답 ${item.wrong}, 정답률 ${formatCsvAccuracy(item.correct, item.attempts)}`
+        : `${label}: 기록 없음`;
+      cells.push(`
+        <div class="gugudan-heatmap-cell level-${level}" title="${escapeHtml(title)}" aria-label="${escapeHtml(title)}">
+          <strong>${label}</strong>
+          <span>${escapeHtml(getGugudanRiskLabel(level))}</span>
+        </div>
+      `);
+    }
+  }
+  return cells.join('');
+}
+
+function setGugudanReportOpen(open, options = {}) {
+  const active = Boolean(open);
+  if (!elements.gugudanReportModal) return;
+  elements.gugudanReportModal.classList.toggle('is-hidden', !active);
+  elements.gugudanReportModal.setAttribute('aria-hidden', String(!active));
+  if (active) {
+    elements.gugudanReportCloseButton?.focus();
+  } else if (options.restoreFocus !== false) {
+    elements.gugudanStatusButton?.focus();
+  }
+}
+
+function renderGugudanStatusReport(record, fileName = '', options = {}) {
+  if (!elements.gugudanReportBody) return;
+  const summary = buildGugudanReportSummary(record);
+  const studentIds = Array.from(record.studentIds || []).filter(Boolean).sort((left, right) => left.localeCompare(right, 'ko-KR'));
+  const studentText = studentIds.length ? studentIds.join(', ') : '학생번호 없음';
+  const danItems = getGugudanDanReportItems(record.factMap);
+  const dangerCount = getSortedGugudanFacts(record.factMap).filter((item) => getGugudanRiskLevel(item) === 'danger').length;
+  const warningCount = getSortedGugudanFacts(record.factMap).filter((item) => getGugudanRiskLevel(item) === 'warning').length;
+  if (elements.gugudanReportSubtitle) {
+    elements.gugudanReportSubtitle.textContent = fileName
+      ? `${fileName} · ${studentText}`
+      : studentText;
+  }
+  elements.gugudanReportBody.innerHTML = `
+    <section class="gugudan-report-hero">
+      <div>
+        <span>누적 정답률</span>
+        <strong>${escapeHtml(formatAccuracy(summary.correct, summary.attempts))}</strong>
+      </div>
+      <p>${escapeHtml(getGugudanReportComment(summary))}</p>
+    </section>
+
+    <section class="gugudan-report-metrics" aria-label="구구단 누적 요약">
+      <div><span>풀이</span><strong>${summary.attempts}</strong><em>문제</em></div>
+      <div><span>정답</span><strong>${summary.correct}</strong><em>개</em></div>
+      <div><span>오답</span><strong>${summary.wrong}</strong><em>개</em></div>
+      <div><span>집중 연습</span><strong>${dangerCount}</strong><em>문항</em></div>
+      <div><span>다시 확인</span><strong>${warningCount}</strong><em>문항</em></div>
+    </section>
+
+    <section class="gugudan-report-section">
+      <div class="gugudan-report-section-head">
+        <h3>많이 틀린 구구단 단수</h3>
+        <span>오답 횟수와 오답률 기준</span>
+      </div>
+      <div class="gugudan-weak-list">${renderGugudanWeakBars(summary.weakDans, 'dan')}</div>
+    </section>
+
+    <section class="gugudan-report-section">
+      <div class="gugudan-report-section-head">
+        <h3>많이 틀린 곱셈</h3>
+        <span>먼저 복습할 문항</span>
+      </div>
+      <div class="gugudan-weak-list">${renderGugudanWeakBars(summary.weakFacts, 'fact')}</div>
+    </section>
+
+    <section class="gugudan-report-section">
+      <div class="gugudan-report-section-head">
+        <h3>단별 상태</h3>
+        <span>2단부터 9단까지 누적 결과</span>
+      </div>
+      <div class="gugudan-dan-strip">
+        ${danItems.map((item) => {
+          const level = getGugudanRiskLevel(item);
+          return `
+            <div class="gugudan-dan-card risk-${level}">
+              <b>${item.dan}단</b>
+              <strong>${escapeHtml(formatCsvAccuracy(item.correct, item.attempts))}</strong>
+              <span>오답 ${item.wrong}회</span>
+            </div>
+          `;
+        }).join('')}
+      </div>
+    </section>
+
+    <section class="gugudan-report-section">
+      <div class="gugudan-report-section-head">
+        <h3>구구단 지도</h3>
+        <span>초록 안정 · 노랑 다시 확인 · 빨강 집중 연습</span>
+      </div>
+      <div class="gugudan-heatmap" role="grid" aria-label="구구단 문항별 상태">
+        ${renderGugudanHeatmap(record.factMap)}
+      </div>
+    </section>
+
+    <p class="gugudan-report-note">${escapeHtml(options.message || '선택한 기록 파일은 앱 안에 저장되지 않습니다.')}</p>
+  `;
+  setGugudanReportOpen(true, { restoreFocus: false });
+}
+
 function setGugudanStatusPanel(message = '기록 파일을 선택하면 구구단 상태가 여기에 표시됩니다.', kind = '') {
   const panel = elements.gugudanStatusPanel;
   if (!panel) return;
@@ -4785,6 +4998,7 @@ async function loadGugudanStatusCsv(file) {
       return;
     }
     renderGugudanStatusPanel(record, file.name);
+    renderGugudanStatusReport(record, file.name);
   } catch (error) {
     setGugudanStatusPanel('기록 파일을 읽지 못했습니다. CSV 파일을 다시 선택하세요.', 'error');
   }
@@ -4861,6 +5075,12 @@ async function mergeSelectedGugudanRecordFiles(files) {
   }, filename, {
     title: '구구단 기록 합치기',
     message: `${selectedFiles.length}개 기록을 하나로 합쳐 저장했습니다.`
+  });
+  renderGugudanStatusReport({
+    factMap: mergedMap,
+    studentIds
+  }, filename, {
+    message: `${selectedFiles.length}개 기록을 하나로 합쳐 저장했습니다. 새 파일을 내려받은 뒤 계속 보관하세요.`
   });
 }
 
@@ -5225,9 +5445,16 @@ function bindEvents() {
   elements.qrModal?.addEventListener('click', (event) => {
     if (event.target === elements.qrModal) setQrModalOpen(false);
   });
+  elements.gugudanReportCloseButton?.addEventListener('click', () => setGugudanReportOpen(false));
+  elements.gugudanReportModal?.addEventListener('click', (event) => {
+    if (event.target === elements.gugudanReportModal) setGugudanReportOpen(false);
+  });
   window.addEventListener('keydown', (event) => {
     if (event.key === 'Escape' && elements.qrModal && !elements.qrModal.classList.contains('is-hidden')) {
       setQrModalOpen(false);
+    }
+    if (event.key === 'Escape' && elements.gugudanReportModal && !elements.gugudanReportModal.classList.contains('is-hidden')) {
+      setGugudanReportOpen(false);
     }
   });
 

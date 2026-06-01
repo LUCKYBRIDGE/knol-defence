@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>놀퀴즈 거북선 디펜스</title>
-    <link rel="stylesheet" href="./styles.css?v=20260601-cloudflare-qr" />
+    <link rel="stylesheet" href="./styles.css?v=20260601-gugudan-report" />
   </head>
   <body class="theme-turtle" data-screen="setup">
     <div class="app-shell">
@@ -173,7 +173,21 @@
       </div>
     </section>
 
+    <section class="gugudan-report-modal is-hidden" id="gugudan-report-modal" role="dialog" aria-modal="true" aria-hidden="true" aria-labelledby="gugudan-report-title">
+      <div class="gugudan-report-card">
+        <div class="gugudan-report-head">
+          <div>
+            <span class="screen-kicker">Gugudan Report</span>
+            <h2 id="gugudan-report-title">내 구구단 상태</h2>
+            <p id="gugudan-report-subtitle">기록 파일을 선택하면 보고서가 표시됩니다.</p>
+          </div>
+          <button class="ghost-action gugudan-report-close-button" type="button" id="gugudan-report-close-button">닫기</button>
+        </div>
+        <div class="gugudan-report-body" id="gugudan-report-body"></div>
+      </div>
+    </section>
+
     <script src="./assets/quiz/data/inline-packs.js"></script>
-    <script src="./app.js?v=20260601-cloudflare-qr"></script>
+    <script src="./app.js?v=20260601-gugudan-report"></script>
   </body>
 </html>
