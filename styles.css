@@ -314,6 +314,18 @@ body[data-screen="result"] .top-controls {
   display: none;
 }
 
+body[data-screen="play"] .app-shell {
+  width: min(1500px, calc(100% - clamp(6px, 1vw, 14px)));
+  padding-block: clamp(3px, 0.55vw, 7px);
+  gap: 0;
+}
+
+body[data-screen="play"] .screen {
+  border-color: rgba(15, 118, 110, 0.18);
+  box-shadow: none;
+  padding: clamp(5px, 0.75vw, 9px);
+}
+
 .qr-modal {
   position: fixed;
   inset: 0;
@@ -763,6 +775,45 @@ body[data-screen="result"] .screen-stack {
   min-height: 42px;
   border-radius: var(--radius);
   white-space: nowrap;
+}
+
+body[data-screen="play"] .play-topline {
+  min-height: 32px;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 6px;
+  margin-bottom: 4px;
+}
+
+body[data-screen="play"] .play-left-actions {
+  gap: 4px;
+}
+
+body[data-screen="play"] .play-topline .ghost-action {
+  min-height: 32px;
+  padding: 0 9px;
+  font-size: 12px;
+  line-height: 1;
+}
+
+body[data-screen="play"] .play-fullscreen-toggle {
+  min-width: 44px;
+}
+
+body[data-screen="play"] .play-title {
+  font-size: clamp(13px, 1.3vw, 17px);
+  line-height: 1.05;
+}
+
+body[data-screen="play"] .play-topline .timer-pill {
+  min-width: 82px;
+  min-height: 32px;
+  padding: 3px 8px;
+  font-size: 18px;
+}
+
+body[data-screen="play"] .play-topline .timer-pill::before {
+  display: none;
 }
 
 .screen-heading h2,
@@ -1470,6 +1521,10 @@ select {
   overflow: hidden;
 }
 
+body[data-screen="play"] .game-stage {
+  border-color: rgba(15, 118, 110, 0.18);
+}
+
 .stage-panel {
   height: 100%;
   min-height: 0;
@@ -1477,6 +1532,11 @@ select {
   display: grid;
   grid-template-rows: minmax(0, 1fr);
   gap: 9px;
+}
+
+body[data-screen="play"] .stage-panel {
+  padding: clamp(4px, 0.6vw, 8px);
+  gap: 5px;
 }
 
 .split-battle-grid {
@@ -1511,6 +1571,11 @@ select {
   grid-template-rows: auto minmax(0, 1fr) auto;
   gap: 7px;
   overflow: hidden;
+}
+
+body[data-screen="play"] .battle-panel {
+  padding: clamp(4px, 0.55vw, 7px);
+  gap: 4px;
 }
 
 .battle-panel-coop {
@@ -2294,6 +2359,11 @@ select {
   gap: 7px;
 }
 
+body[data-screen="play"] .battle-player-head {
+  min-height: 24px;
+  gap: 5px;
+}
+
 .battle-player-head b,
 .battle-player-head span {
   display: block;
@@ -2316,6 +2386,10 @@ select {
   font-weight: 900;
 }
 
+body[data-screen="play"] .battle-player-head span {
+  display: none;
+}
+
 .battle-player-head em {
   border-radius: 6px;
   background: #0f766e;
@@ -2324,6 +2398,11 @@ select {
   font-style: normal;
   font-size: 12px;
   font-weight: 900;
+}
+
+body[data-screen="play"] .battle-player-head em {
+  padding: 3px 6px;
+  font-size: 11px;
 }
 
 .score-row {
@@ -2391,12 +2470,24 @@ select {
   background: #d4efff;
 }
 
+.battle-background-canvas,
 .battle-canvas {
+  position: absolute;
+  inset: 0;
   display: block;
   width: 100%;
   height: 100%;
   min-height: 0;
-  background: #d4efff;
+}
+
+.battle-background-canvas {
+  z-index: 0;
+  pointer-events: none;
+}
+
+.battle-canvas {
+  z-index: 1;
+  background: transparent;
 }
 
 .battle-status {
@@ -2443,10 +2534,18 @@ select {
   gap: 8px;
 }
 
+body[data-screen="play"] .battle-command {
+  gap: 5px;
+}
+
 .battle-control-row {
   display: grid;
   grid-template-columns: minmax(128px, 0.24fr) minmax(0, 1fr);
   gap: 7px;
+}
+
+body[data-screen="play"] .battle-control-row {
+  gap: 5px;
 }
 
 .battle-panel-coop:not(.battle-panel-tablet) .battle-control-row {
@@ -2494,6 +2593,10 @@ select {
   gap: 7px;
 }
 
+body[data-screen="play"] .battle-stat-grid {
+  gap: 5px;
+}
+
 .battle-panel-coop:not(.battle-panel-tablet) .battle-stat-grid {
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 5px;
@@ -2526,6 +2629,10 @@ select {
   border-radius: var(--radius);
   background: var(--surface-soft);
   padding: 7px;
+}
+
+body[data-screen="play"] .battle-stat {
+  padding: 5px 6px;
 }
 
 .battle-panel-coop:not(.battle-panel-tablet) .battle-stat {
@@ -6513,6 +6620,140 @@ body[data-screen="play"][data-tablet-face="true"] .play-topline .timer-pill {
   .battle-panel-coop:not(.battle-panel-tablet) .coop-player-control-grid.player-count-4 .player-upgrade-grid .upgrade-button small {
     display: none;
   }
+}
+
+/* Map-first play chrome: keep controls functional while giving the square battlefield more room. */
+body[data-screen="play"] .play-topline {
+  min-height: 32px;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 4px;
+  margin-bottom: 3px;
+}
+
+body[data-screen="play"] .play-topline .ghost-action {
+  min-height: 30px;
+  padding: 0 8px;
+  font-size: 11px;
+}
+
+body[data-screen="play"] .play-fullscreen-toggle {
+  min-width: 40px;
+  min-height: 30px;
+  padding: 0 7px;
+  font-size: 11px;
+}
+
+body[data-screen="play"] .play-topline .timer-pill {
+  min-width: 78px;
+  min-height: 30px;
+  padding: 2px 7px;
+  font-size: 17px;
+}
+
+body[data-screen="play"] .play-topline .timer-pill::before {
+  display: none;
+}
+
+body[data-screen="play"] .stage-panel {
+  padding: clamp(4px, 0.6vw, 8px);
+  gap: 4px;
+}
+
+body[data-screen="play"] .battle-panel:not(.battle-panel-tablet) {
+  padding: clamp(3px, 0.45vw, 6px);
+  gap: 3px;
+}
+
+body[data-screen="play"] .battle-command {
+  gap: 3px;
+}
+
+body[data-screen="play"] .battle-stat-grid {
+  grid-template-columns: repeat(auto-fit, minmax(76px, 1fr));
+  gap: 3px;
+}
+
+body[data-screen="play"] .split-count-3 .battle-stat-grid,
+body[data-screen="play"] .split-count-4 .battle-stat-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+body[data-screen="play"] .split-count-3 .battle-panel:not(.battle-panel-tablet) .battle-stat-grid,
+body[data-screen="play"] .split-count-4 .battle-panel:not(.battle-panel-tablet) .battle-stat-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+}
+
+body[data-screen="play"] .battle-stat {
+  min-height: 25px;
+  padding: 2px 5px;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  column-gap: 4px;
+  row-gap: 1px;
+}
+
+body[data-screen="play"] .battle-panel-coop:not(.battle-panel-tablet) .battle-stat {
+  min-height: 25px;
+  padding: 2px 5px;
+}
+
+body[data-screen="play"] .battle-stat b {
+  font-size: 9px;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+body[data-screen="play"] .battle-stat span,
+body[data-screen="play"] .battle-stat.score-stat span,
+body[data-screen="play"] .ship-hp-stat span {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1;
+  text-align: right;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+body[data-screen="play"] .attack-stat-card span {
+  font-size: 10px;
+}
+
+body[data-screen="play"] .ship-hp-stat {
+  grid-template-rows: auto 3px;
+}
+
+body[data-screen="play"] .ship-hp-stat .hud-hp-bar {
+  grid-column: 1 / -1;
+  height: 3px;
+  margin-top: 0;
+}
+
+body[data-screen="play"] .battle-control-row {
+  grid-template-columns: minmax(90px, 0.22fr) minmax(0, 1fr);
+  gap: 3px;
+}
+
+body[data-screen="play"] .quiz-open-button,
+body[data-screen="play"] .battle-status {
+  min-height: 28px;
+  padding: 2px 7px;
+  font-size: 11px;
+}
+
+body[data-screen="play"] .battle-status {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+body[data-screen="play"] .upgrade-grid {
+  gap: 3px;
+}
+
+body[data-screen="play"] .upgrade-button {
+  min-height: 28px;
 }
 
 body[data-screen="play"] .quiz-open-button,

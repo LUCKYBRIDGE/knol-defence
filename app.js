@@ -275,6 +275,7 @@ const BATTLE_QUIZ_WORLD_SLOW_RATIO = 0.35;
 const SHIP_BASE_MAX_HP = 300;
 const SHIP_BASE_ATTACK_POWER = 12;
 const SHIP_BASE_ATTACK_COOLDOWN_MS = 700;
+const SHIP_INITIAL_ATTACK_COOLDOWN_MS = 1000;
 const SHIP_ATTACK_SPEED_LEVEL_STEP = 0.075;
 const SHIP_ATTACK_POWER_LEVEL_STEP = 0.11;
 const SHIP_HULL_HP_STEP = 40;
@@ -312,7 +313,7 @@ const BATTLESHIP_DEFEAT_PENALTY_WAVE_STEP = 45;
 const PROJECTILE_RENDER_RADIUS_RATIO = 0.66;
 const PROJECTILE_RENDER_STROKE_WIDTH = 1.35;
 const EARLY_ATTACK_SLOW_WINDOW_SEC = 70;
-const EARLY_ATTACK_SLOW_MAX_RATIO = 1.22;
+const EARLY_ATTACK_SLOW_MAX_RATIO = SHIP_INITIAL_ATTACK_COOLDOWN_MS / SHIP_BASE_ATTACK_COOLDOWN_MS;
 const QUIZ_SCORE_BASE = 120;
 const QUIZ_SCORE_DIFFICULTY_STEP = 35;
 const QUIZ_COMBO_SCORE_STEP = 0.06;
@@ -340,10 +341,16 @@ const KILL_SCORE_BASE = 25;
 const KILL_SCORE_TIER_STEP = 14;
 const KILL_SCORE_COMBO_STEP = 0.015;
 const KILL_SCORE_COMBO_MAX = 0.36;
+const ENEMY_BADGE_SPRITE_CACHE_LIMIT = 96;
+const ENEMY_SHADOW_SPRITE_CACHE_LIMIT = 220;
+const ENEMY_SPRITE_CACHE_DPR = 2;
 const projectileAngleOffsetCache = new Map();
 const explosionFrameCache = new Map();
 const warmedExplosionLevels = new Set();
+const enemyBadgeSpriteCache = new Map();
+const enemyShadowSpriteCache = new Map();
 let explosionWarmupTail = Promise.resolve();
+let enemyBadgeMeasureCtx = null;
 
 const elements = {
   setupScreen: $('#setup-screen'),
@@ -430,6 +437,8 @@ let activeWeaknessPractice = null;
 let session = null;
 let battleCanvas = null;
 let battleCtx = null;
+let battleBackgroundCanvas = null;
+let battleBackgroundCtx = null;
 let battleViews = [];
 let currentBattleIndex = 0;
 let battleAnimationId = 0;
@@ -1355,7 +1364,8 @@ function updateFullscreenControls() {
   const active = isFullscreenActive();
   const supported = isFullscreenSupported();
   elements.fullscreenToggles.forEach((button) => {
-    button.textContent = active ? '전체화면 해제' : '전체화면';
+    const compact = button.classList.contains('play-fullscreen-toggle');
+    button.textContent = compact ? (active ? '해제' : '전체') : (active ? '전체화면 해제' : '전체화면');
     button.disabled = !supported;
     button.classList.toggle('is-active', active);
     button.setAttribute('aria-pressed', String(active));
@@ -1614,6 +1624,16 @@ function getWarmupEnemyVariantStyles() {
   ];
 }
 
+function warmupEnemyBadgeSprites() {
+  const badges = [
+    ...Object.values(ENEMY_ROLE_BADGES),
+    ...getWarmupEnemyVariantStyles().map((style) => style.badge).filter(Boolean)
+  ];
+  [0.55, 0.75, 1].forEach((scale) => {
+    badges.forEach((badge) => getEnemyBadgeSprite(badge, scale));
+  });
+}
+
 function warmupEnemyVariantSprites() {
   getWarmupEnemyVariantStyles().forEach((style) => {
     enemyImages.forEach((image) => {
@@ -1624,6 +1644,7 @@ function warmupEnemyVariantSprites() {
       getCompositeEnemySprite(image, style);
     });
   });
+  warmupEnemyBadgeSprites();
 }
 
 function warmupCanvasPrimitives() {
@@ -1857,6 +1878,7 @@ function createBattleState(playerIndex = 0) {
       elapsedSec: 0
     },
     backgroundCache: null,
+    backgroundLayerSignature: '',
     shipSpriteCache: null,
     shipHpGaugeCache: null,
     waveOverlayCache: null,
@@ -2021,6 +2043,8 @@ function setBattleContext(index = currentBattleIndex) {
   session.battle = battle;
   battleCanvas = battleViews[battleIndex]?.canvas || null;
   battleCtx = battleViews[battleIndex]?.ctx || null;
+  battleBackgroundCanvas = battleViews[battleIndex]?.backgroundCanvas || null;
+  battleBackgroundCtx = battleViews[battleIndex]?.backgroundCtx || null;
   return battle;
 }
 
@@ -2029,6 +2053,8 @@ function withBattleContext(index, callback) {
   const previousBattle = session?.battle || null;
   const previousCanvas = battleCanvas;
   const previousCtx = battleCtx;
+  const previousBackgroundCanvas = battleBackgroundCanvas;
+  const previousBackgroundCtx = battleBackgroundCtx;
   const battle = setBattleContext(index);
   if (!battle) return undefined;
   try {
@@ -2038,6 +2064,8 @@ function withBattleContext(index, callback) {
     if (session && previousBattle) session.battle = previousBattle;
     battleCanvas = previousCanvas;
     battleCtx = previousCtx;
+    battleBackgroundCanvas = previousBackgroundCanvas;
+    battleBackgroundCtx = previousBackgroundCtx;
   }
 }
 
@@ -2259,6 +2287,18 @@ function getAttackCooldownMs() {
   return (SHIP_BASE_ATTACK_COOLDOWN_MS * earlySlowRatio) / speedMultiplier;
 }
 
+function formatAttackCycleSeconds(cooldownMs) {
+  const seconds = Math.max(0.1, (Number(cooldownMs) || SHIP_INITIAL_ATTACK_COOLDOWN_MS) / 1000);
+  const rounded = Math.round(seconds * 10) / 10;
+  if (Math.abs(rounded - Math.round(rounded)) < 0.05) return String(Math.round(rounded));
+  return rounded.toFixed(1);
+}
+
+function getAttackStatText(ship = session?.battle?.ship) {
+  if (!ship) return `${SHIP_BASE_ATTACK_POWER} · 1발/1초`;
+  return `${ship.attackPower} · ${ship.projectileCount}발/${formatAttackCycleSeconds(getAttackCooldownMs())}초`;
+}
+
 function getShipPenetrationHits() {
   return clamp(Math.max(0, session.battle.ship.penetrationLevel), 0, SHIP_MAX_PENETRATION_LEVEL);
 }
@@ -2347,6 +2387,7 @@ function renderBattlePanel(player, index) {
       </div>
       <div class="battlefield-slot">
         <div class="battlefield-shell">
+          <canvas class="battle-background-canvas" aria-hidden="true"></canvas>
           <canvas class="battle-canvas" aria-label="${escapeHtml(player.name)} 거북선 전투 전장"></canvas>
         </div>
       </div>
@@ -2360,7 +2401,7 @@ function renderBattlePanel(player, index) {
           <div class="battle-stat score-stat"><b>점수</b><span data-ref="score-points">0</span></div>
           <div class="battle-stat"><b>격퇴/콤보</b><span data-ref="kill-combo">0 / x0</span></div>
           <div class="battle-stat"><b>GOLD</b><span data-ref="resource-score">0</span></div>
-          <div class="battle-stat"><b>화력</b><span data-ref="attack-stat">14</span></div>
+          <div class="battle-stat attack-stat-card"><b>화력</b><span data-ref="attack-stat">12 · 1발/1초</span></div>
         </div>
         <div class="battle-control-row">
           <button class="quiz-open-button" type="button" data-action="quiz">퀴즈 열기</button>
@@ -2408,7 +2449,7 @@ function renderTabletTeamHud() {
       <div class="battle-stat score-stat"><b>팀 점수</b><span data-ref="score-points">0</span></div>
       <div class="battle-stat"><b>격퇴/콤보</b><span data-ref="kill-combo">0 / x0</span></div>
       <div class="battle-stat"><b>공유 GOLD</b><span data-ref="resource-score">0</span></div>
-      <div class="battle-stat"><b>화력</b><span data-ref="attack-stat">14</span></div>
+      <div class="battle-stat attack-stat-card"><b>화력</b><span data-ref="attack-stat">12 · 1발/1초</span></div>
       <div class="battle-status" data-ref="battle-status">태블릿 대면 전장 진행 중</div>
     </div>
   `;
@@ -2450,6 +2491,7 @@ function renderTabletCoopBattlePanel() {
       <div class="tablet-battle-core">
         <div class="battlefield-slot">
           <div class="battlefield-shell">
+            <canvas class="battle-background-canvas" aria-hidden="true"></canvas>
             <canvas class="battle-canvas" aria-label="태블릿 함께 풀기 거북선 전투 전장"></canvas>
           </div>
         </div>
@@ -2473,6 +2515,7 @@ function renderCoopBattlePanel() {
       </div>
       <div class="battlefield-slot">
         <div class="battlefield-shell">
+          <canvas class="battle-background-canvas" aria-hidden="true"></canvas>
           <canvas class="battle-canvas" aria-label="함께 풀기 거북선 전투 전장"></canvas>
         </div>
       </div>
@@ -2486,7 +2529,7 @@ function renderCoopBattlePanel() {
           <div class="battle-stat score-stat"><b>팀 점수</b><span data-ref="score-points">0</span></div>
           <div class="battle-stat"><b>격퇴/콤보</b><span data-ref="kill-combo">0 / x0</span></div>
           <div class="battle-stat"><b>공유 GOLD</b><span data-ref="resource-score">0</span></div>
-          <div class="battle-stat"><b>화력</b><span data-ref="attack-stat">14</span></div>
+          <div class="battle-stat attack-stat-card"><b>화력</b><span data-ref="attack-stat">12 · 1발/1초</span></div>
         </div>
         <div class="battle-control-row">
           <div class="battle-status" data-ref="battle-status">팀 전장 진행 중</div>
@@ -2545,9 +2588,12 @@ function collectBattleDomRefs(root) {
 
 function createBattleView(panel, index) {
   const canvas = $('.battle-canvas', panel);
+  const backgroundCanvas = $('.battle-background-canvas', panel);
   return {
     index,
     panel,
+    backgroundCanvas,
+    backgroundCtx: backgroundCanvas?.getContext('2d') || null,
     canvas,
     ctx: canvas.getContext('2d'),
     refs: collectBattleDomRefs(panel)
@@ -2596,14 +2642,16 @@ function setUpgradeButtons(source, action, disabled, title, meta, cost) {
 
 function refreshBattleHud(index = currentBattleIndex, options = {}) {
   if (!session) return;
-  setBattleContext(index);
-  const battle = session.battle;
   const nowMs = Number(options.nowMs) || performance.now();
   if (options.passive) {
-    const elapsedSinceHudRefresh = nowMs - (Number(battle.lastHudRefreshMs) || 0);
-    const refreshInterval = battle.hudDirty ? HUD_REFRESH_INTERVAL_MS : HUD_IDLE_REFRESH_INTERVAL_MS;
+    const targetBattle = getBattle(index);
+    if (!targetBattle) return;
+    const elapsedSinceHudRefresh = nowMs - (Number(targetBattle.lastHudRefreshMs) || 0);
+    const refreshInterval = targetBattle.hudDirty ? HUD_REFRESH_INTERVAL_MS : HUD_IDLE_REFRESH_INTERVAL_MS;
     if (elapsedSinceHudRefresh < refreshInterval) return;
   }
+  setBattleContext(index);
+  const battle = session.battle;
   battle.lastHudRefreshMs = nowMs;
   battle.hudDirty = false;
   const ship = battle.ship;
@@ -2626,7 +2674,7 @@ function refreshBattleHud(index = currentBattleIndex, options = {}) {
   setText('score-points', battle.score.points.toLocaleString('ko-KR'));
   setText('kill-combo', `${battle.score.kills} / x${battle.score.combo}`);
   setText('resource-score', battle.score.gold.toLocaleString('ko-KR'));
-  setText('attack-stat', `${ship.attackPower} · ${ship.projectileCount}발`);
+  setText('attack-stat', getAttackStatText(ship));
   refs.statusNodes.forEach((toast) => {
     if (toast.textContent !== battle.statusText) toast.textContent = battle.statusText;
     const className = `battle-status ${battle.statusTone || ''}`;
@@ -2642,7 +2690,7 @@ function refreshBattleHud(index = currentBattleIndex, options = {}) {
     if (hpFill.style.width !== width) hpFill.style.width = width;
   });
 
-  const quizButtons = refs.quizButtons;
+  const quizButtons = options.passive ? [] : refs.quizButtons;
   if (quizButtons.length) {
     quizButtons.forEach((quizButton) => {
       const playerIndex = getPlayerIndexFromElement(quizButton);
@@ -3309,7 +3357,7 @@ function renderPlay() {
   document.body.dataset.displayMode = session.displayMode;
   document.body.dataset.displayModeChoice = session.displayModeChoice;
   document.body.dataset.tabletFace = String(tabletFace);
-  elements.playTitle.textContent = `거북선 디펜스 · ${session.packLabel} · ${session.modeLabel} · ${session.displayModeLabel} · ${session.players.length}명`;
+  elements.playTitle.textContent = `${session.packLabel} · ${session.modeLabel} · ${session.players.length}명`;
   elements.questionArea.classList.add('is-hidden');
   elements.questionArea.innerHTML = '';
   updateTimer();
@@ -3476,10 +3524,23 @@ function syncCanvasSize(options = {}) {
   const deviceDpr = Math.max(1, Math.min(2, window.devicePixelRatio || 1));
   const backingPixelDpr = Math.sqrt(CANVAS_MAX_BACKING_PIXELS / Math.max(1, width * height));
   const dpr = Math.max(1, Math.min(deviceDpr, backingPixelDpr));
-  if (battleCanvas.width !== Math.round(width * dpr) || battleCanvas.height !== Math.round(height * dpr)) {
-    battleCanvas.width = Math.round(width * dpr);
-    battleCanvas.height = Math.round(height * dpr);
+  const backingWidth = Math.round(width * dpr);
+  const backingHeight = Math.round(height * dpr);
+  const canvasNeedsResize = battleCanvas.width !== backingWidth || battleCanvas.height !== backingHeight;
+  const backgroundNeedsResize = Boolean(
+    battleBackgroundCanvas
+      && (battleBackgroundCanvas.width !== backingWidth || battleBackgroundCanvas.height !== backingHeight)
+  );
+  const backgroundLayerSignature = `${backingWidth}x${backingHeight}:${Math.round(width)}x${Math.round(height)}`;
+  if (canvasNeedsResize || backgroundNeedsResize) {
+    battleCanvas.width = backingWidth;
+    battleCanvas.height = backingHeight;
     battleCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    if (battleBackgroundCanvas && battleBackgroundCtx) {
+      battleBackgroundCanvas.width = backingWidth;
+      battleBackgroundCanvas.height = backingHeight;
+      battleBackgroundCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    }
     session.battle.canvasWidth = width;
     session.battle.canvasHeight = height;
     session.battle.backgroundCache = null;
@@ -3489,6 +3550,10 @@ function syncCanvasSize(options = {}) {
     session.battle.ship.x = width * 0.5;
     session.battle.ship.y = height * 0.5;
     session.battle.ship.radius = clamp(Math.min(width, height) * 0.07 * SHIP_COLLISION_RADIUS_SCALE, 16, 42);
+  }
+  if (battleBackgroundCtx && (force || canvasNeedsResize || backgroundNeedsResize || battle.backgroundLayerSignature !== backgroundLayerSignature)) {
+    drawBackground(battleBackgroundCtx, width, height, battle);
+    battle.backgroundLayerSignature = backgroundLayerSignature;
   }
 }
 
@@ -4425,7 +4490,7 @@ function updateBattle(dtSec, nowMs) {
     }
   }
 
-  const enemyGrid = battle.projectiles.length ? buildEnemySpatialGrid(battle) : null;
+  const enemyGrid = battle.projectiles.length && battle.enemies.length ? buildEnemySpatialGrid(battle) : null;
   for (let index = battle.projectiles.length - 1; index >= 0; index -= 1) {
     const projectile = battle.projectiles[index];
     if (!projectile || projectile.removed) continue;
@@ -4964,6 +5029,178 @@ function getCompositeEnemySprite(image, style) {
   return result;
 }
 
+function trimMapCache(cache, limit) {
+  if (!cache?.size || cache.size <= limit) return;
+  while (cache.size > limit) {
+    const firstKey = cache.keys().next().value;
+    if (!firstKey) break;
+    cache.delete(firstKey);
+  }
+}
+
+function getEnemyBodySource(image, variantStyle) {
+  if (!image?.complete || !image.naturalWidth) return null;
+  if (!variantStyle) {
+    return {
+      image,
+      padX: 0,
+      padY: 0,
+      kind: 'base',
+      cacheKey: image.currentSrc || image.src || `${image.naturalWidth}x${image.naturalHeight}`
+    };
+  }
+  const compositeSprite = getCompositeEnemySprite(image, variantStyle);
+  if (compositeSprite?.image) {
+    return {
+      image: compositeSprite.image,
+      padX: compositeSprite.padX,
+      padY: compositeSprite.padY,
+      kind: 'composite',
+      cacheKey: getEnemyVariantCacheKey(image, 'composite-body', variantStyle.compositeCacheKey || variantStyle.cacheKey || 'variant')
+    };
+  }
+  const tintedSprite = getTintedEnemySprite(image, variantStyle);
+  return {
+    image: tintedSprite,
+    padX: 0,
+    padY: 0,
+    kind: 'tinted',
+    cacheKey: getEnemyVariantCacheKey(image, 'tinted-body', variantStyle.cacheKey || 'variant')
+  };
+}
+
+function drawEnemyBodySource(ctx, source, drawX, drawY, drawWidth, drawHeight) {
+  if (!source?.image) return false;
+  const padX = drawWidth * (Number(source.padX) || 0);
+  const padY = drawHeight * (Number(source.padY) || 0);
+  ctx.drawImage(
+    source.image,
+    drawX - padX,
+    drawY - padY,
+    drawWidth + padX * 2,
+    drawHeight + padY * 2
+  );
+  return true;
+}
+
+function getEnemyShadowSprite(source, drawWidth, drawHeight, enemyDrawScale, shadowBlur, shadowOffsetY, filterText) {
+  if (!source?.image || shadowBlur <= 0) return null;
+  const bodyWidth = drawWidth + drawWidth * (Number(source.padX) || 0) * 2;
+  const bodyHeight = drawHeight + drawHeight * (Number(source.padY) || 0) * 2;
+  const shadowPad = Math.ceil(Math.max(6, shadowBlur + Math.abs(shadowOffsetY) + 4));
+  const dpr = ENEMY_SPRITE_CACHE_DPR;
+  const logicalWidth = Math.ceil(bodyWidth + shadowPad * 2);
+  const logicalHeight = Math.ceil(bodyHeight + shadowPad * 2 + Math.max(0, shadowOffsetY));
+  const key = [
+    source.cacheKey,
+    Math.round(bodyWidth * 10),
+    Math.round(bodyHeight * 10),
+    Math.round(enemyDrawScale * 1000),
+    Math.round(shadowBlur * 10),
+    Math.round(shadowOffsetY * 10),
+    filterText || '',
+    dpr
+  ].join('|');
+  const cached = enemyShadowSpriteCache.get(key);
+  if (cached) return cached;
+
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.max(1, Math.ceil(logicalWidth * dpr));
+  canvas.height = Math.max(1, Math.ceil(logicalHeight * dpr));
+  const offCtx = canvas.getContext('2d');
+  if (!offCtx) return null;
+  offCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  offCtx.shadowColor = 'rgba(9, 24, 56, 0.24)';
+  offCtx.shadowBlur = shadowBlur;
+  offCtx.shadowOffsetY = shadowOffsetY;
+  if (filterText) offCtx.filter = filterText;
+  offCtx.drawImage(source.image, shadowPad, shadowPad, bodyWidth, bodyHeight);
+  offCtx.filter = 'none';
+
+  const sprite = {
+    canvas,
+    width: logicalWidth,
+    height: logicalHeight,
+    anchorX: shadowPad + bodyWidth / 2,
+    anchorY: shadowPad + bodyHeight / 2
+  };
+  enemyShadowSpriteCache.set(key, sprite);
+  trimMapCache(enemyShadowSpriteCache, ENEMY_SHADOW_SPRITE_CACHE_LIMIT);
+  return sprite;
+}
+
+function getEnemyBadgeMeasureContext() {
+  if (enemyBadgeMeasureCtx) return enemyBadgeMeasureCtx;
+  const canvas = document.createElement('canvas');
+  enemyBadgeMeasureCtx = canvas.getContext('2d');
+  return enemyBadgeMeasureCtx;
+}
+
+function getEnemyBadgeSprite(badge, enemyDrawScale) {
+  const text = String(badge?.text || '');
+  if (!text) return null;
+  const badgeFontSize = Math.round(clamp(10 * enemyDrawScale, 7, 10));
+  const badgeHeight = Math.round(clamp(14 * enemyDrawScale, 10, 14));
+  const badgeRadius = Math.round(clamp(7 * enemyDrawScale, 5, 7));
+  const lineWidth = clamp(enemyDrawScale, 0.75, 1);
+  const fill = badge.fill || 'rgba(15,23,42,0.82)';
+  const stroke = badge.stroke || '';
+  const color = badge.color || '#ffffff';
+  const font = `800 ${badgeFontSize}px Apple SD Gothic Neo, Malgun Gothic, sans-serif`;
+  const key = [
+    text,
+    fill,
+    stroke,
+    color,
+    badgeFontSize,
+    badgeHeight,
+    badgeRadius,
+    Math.round(lineWidth * 100),
+    ENEMY_SPRITE_CACHE_DPR
+  ].join('|');
+  const cached = enemyBadgeSpriteCache.get(key);
+  if (cached) return cached;
+
+  const measureCtx = getEnemyBadgeMeasureContext();
+  if (!measureCtx) return null;
+  measureCtx.font = font;
+  const labelWidth = Math.max(Math.round(24 * enemyDrawScale), measureCtx.measureText(text).width + Math.round(12 * enemyDrawScale));
+  const dpr = ENEMY_SPRITE_CACHE_DPR;
+  const logicalWidth = Math.ceil(labelWidth + lineWidth * 2);
+  const logicalHeight = Math.ceil(badgeHeight + lineWidth * 2);
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.max(1, Math.ceil(logicalWidth * dpr));
+  canvas.height = Math.max(1, Math.ceil(logicalHeight * dpr));
+  const offCtx = canvas.getContext('2d');
+  if (!offCtx) return null;
+  offCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  offCtx.font = font;
+  offCtx.textAlign = 'center';
+  offCtx.textBaseline = 'middle';
+  offCtx.fillStyle = fill;
+  offCtx.beginPath();
+  offCtx.roundRect(lineWidth, lineWidth, labelWidth, badgeHeight, badgeRadius);
+  offCtx.fill();
+  if (stroke) {
+    offCtx.strokeStyle = stroke;
+    offCtx.lineWidth = lineWidth;
+    offCtx.stroke();
+  }
+  offCtx.fillStyle = color;
+  offCtx.fillText(text, lineWidth + labelWidth / 2, lineWidth + badgeHeight / 2);
+
+  const sprite = {
+    canvas,
+    width: logicalWidth,
+    height: logicalHeight,
+    drawOffsetX: logicalWidth / 2,
+    drawOffsetY: lineWidth
+  };
+  enemyBadgeSpriteCache.set(key, sprite);
+  trimMapCache(enemyBadgeSpriteCache, ENEMY_BADGE_SPRITE_CACHE_LIMIT);
+  return sprite;
+}
+
 function drawEnemyVariantAura(ctx, enemy, width, height, style, nowMs) {
   if (!style?.aura) return;
   const pulse = (Math.sin(nowMs * 0.008 + enemy.wobbleSeed) + 1) * 0.5;
@@ -5105,29 +5342,46 @@ function drawEnemy(ctx, enemy, nowMs, renderLoad = null, visualScale = getBattle
     drawEnemyVariantAura(ctx, enemy, drawWidth, drawHeight, variantStyle, nowMs);
   }
 
-  ctx.save();
-  ctx.shadowColor = 'rgba(9, 24, 56, 0.24)';
-  const shadowBlur = renderLoad?.veryBusy
+  const shadowBlur = (renderLoad?.veryBusy
     ? 0
-    : (renderLoad?.performanceMode ? (variantStyle ? 7 : 4) : (variantStyle ? 18 : 10));
-  ctx.shadowBlur = shadowBlur * enemyDrawScale;
-  ctx.shadowOffsetY = renderLoad?.veryBusy ? 0 : (renderLoad?.performanceMode ? 3 : 6) * enemyDrawScale;
-  if (variantStyle?.shadowColor && !renderLoad?.busy && !renderLoad?.performanceMode) {
-    ctx.filter = `drop-shadow(0 0 ${(enemy.elite ? 16 : 11) * enemyDrawScale}px ${variantStyle.shadowColor})`;
-  }
+    : (renderLoad?.performanceMode ? (variantStyle ? 7 : 4) : (variantStyle ? 18 : 10))) * enemyDrawScale;
+  const shadowOffsetY = (renderLoad?.veryBusy ? 0 : (renderLoad?.performanceMode ? 3 : 6)) * enemyDrawScale;
+  const filterText = variantStyle?.shadowColor && !renderLoad?.busy && !renderLoad?.performanceMode
+    ? `drop-shadow(0 0 ${(enemy.elite ? 16 : 11) * enemyDrawScale}px ${variantStyle.shadowColor})`
+    : '';
   if (image?.complete && image.naturalWidth) {
-    const compositeSprite = variantStyle ? getCompositeEnemySprite(image, variantStyle) : null;
-    if (compositeSprite?.image) {
-      const padX = drawWidth * compositeSprite.padX;
-      const padY = drawHeight * compositeSprite.padY;
+    const bodySource = getEnemyBodySource(image, variantStyle);
+    const shadowSprite = getEnemyShadowSprite(bodySource, drawWidth, drawHeight, enemyDrawScale, shadowBlur, shadowOffsetY, filterText);
+    if (shadowSprite?.canvas) {
       ctx.drawImage(
-        compositeSprite.image,
-        drawX - padX,
-        drawY - padY,
-        drawWidth + padX * 2,
-        drawHeight + padY * 2
+        shadowSprite.canvas,
+        enemy.x - shadowSprite.anchorX,
+        enemy.y - shadowSprite.anchorY,
+        shadowSprite.width,
+        shadowSprite.height
       );
+    } else if (bodySource?.image) {
+      const needsContextState = shadowBlur > 0 || Boolean(filterText);
+      if (needsContextState) {
+        ctx.save();
+        ctx.shadowColor = 'rgba(9, 24, 56, 0.24)';
+        ctx.shadowBlur = shadowBlur;
+        ctx.shadowOffsetY = shadowOffsetY;
+        if (filterText) ctx.filter = filterText;
+      }
+      if (bodySource.kind === 'tinted' && variantStyle?.outerOutline) {
+        drawEnemySilhouetteOutline(ctx, image, drawX, drawY, drawWidth, drawHeight, variantStyle.outerOutline, Math.max(1.5, drawWidth * 0.055));
+      }
+      if (bodySource.kind === 'tinted' && variantStyle?.outline) {
+        drawEnemySilhouetteOutline(ctx, image, drawX, drawY, drawWidth, drawHeight, variantStyle.outline, Math.max(1, drawWidth * 0.033));
+      }
+      drawEnemyBodySource(ctx, bodySource, drawX, drawY, drawWidth, drawHeight);
+      if (needsContextState) ctx.restore();
     } else {
+      ctx.save();
+      ctx.shadowColor = 'rgba(9, 24, 56, 0.24)';
+      ctx.shadowBlur = shadowBlur;
+      ctx.shadowOffsetY = shadowOffsetY;
       if (variantStyle?.outerOutline) {
         drawEnemySilhouetteOutline(ctx, image, drawX, drawY, drawWidth, drawHeight, variantStyle.outerOutline, Math.max(1.5, drawWidth * 0.055));
       }
@@ -5136,8 +5390,13 @@ function drawEnemy(ctx, enemy, nowMs, renderLoad = null, visualScale = getBattle
       }
       const renderImage = variantStyle ? getTintedEnemySprite(image, variantStyle) : image;
       ctx.drawImage(renderImage, drawX, drawY, drawWidth, drawHeight);
+      ctx.restore();
     }
   } else {
+    ctx.save();
+    ctx.shadowColor = 'rgba(9, 24, 56, 0.24)';
+    ctx.shadowBlur = shadowBlur;
+    ctx.shadowOffsetY = shadowOffsetY;
     ctx.fillStyle = variantStyle?.fallbackFill || '#be123c';
     ctx.strokeStyle = variantStyle?.outline || 'rgba(255,255,255,0.35)';
     ctx.lineWidth = variantStyle ? 4 : 2;
@@ -5145,8 +5404,8 @@ function drawEnemy(ctx, enemy, nowMs, renderLoad = null, visualScale = getBattle
     ctx.arc(enemy.x, enemy.y, visualRadius, 0, Math.PI * 2);
     ctx.fill();
     if (variantStyle) ctx.stroke();
+    ctx.restore();
   }
-  ctx.restore();
 
   const badge = getEnemyBadge(enemy, variantStyle);
   if (!shouldDrawEnemyInfo(enemy, variantStyle, renderLoad)) return;
@@ -5157,27 +5416,38 @@ function drawEnemy(ctx, enemy, nowMs, renderLoad = null, visualScale = getBattle
   drawHpBar(ctx, enemy.x - barWidth / 2, enemy.y - visualRadius - Math.round(13 * enemyDrawScale), barWidth, enemy.hp, enemy.maxHp, hpColor, barHeight);
   const drawBadge = badge.text && (!renderLoad?.veryBusy || enemy.elite || enemy.hardened);
   if (drawBadge) {
-    ctx.save();
-    const badgeFontSize = Math.round(clamp(10 * enemyDrawScale, 7, 10));
-    const badgeHeight = Math.round(clamp(14 * enemyDrawScale, 10, 14));
-    const badgeRadius = Math.round(clamp(7 * enemyDrawScale, 5, 7));
-    ctx.font = `800 ${badgeFontSize}px Apple SD Gothic Neo, Malgun Gothic, sans-serif`;
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    const labelWidth = Math.max(Math.round(24 * enemyDrawScale), ctx.measureText(badge.text).width + Math.round(12 * enemyDrawScale));
     const labelY = enemy.y - visualRadius - Math.round(30 * enemyDrawScale);
-    ctx.fillStyle = badge.fill || 'rgba(15,23,42,0.82)';
-    ctx.beginPath();
-    ctx.roundRect(enemy.x - labelWidth / 2, labelY, labelWidth, badgeHeight, badgeRadius);
-    ctx.fill();
-    if (badge.stroke) {
-      ctx.strokeStyle = badge.stroke;
-      ctx.lineWidth = clamp(enemyDrawScale, 0.75, 1);
-      ctx.stroke();
+    const badgeSprite = getEnemyBadgeSprite(badge, enemyDrawScale);
+    if (badgeSprite?.canvas) {
+      ctx.drawImage(
+        badgeSprite.canvas,
+        enemy.x - badgeSprite.drawOffsetX,
+        labelY - badgeSprite.drawOffsetY,
+        badgeSprite.width,
+        badgeSprite.height
+      );
+    } else {
+      ctx.save();
+      const badgeFontSize = Math.round(clamp(10 * enemyDrawScale, 7, 10));
+      const badgeHeight = Math.round(clamp(14 * enemyDrawScale, 10, 14));
+      const badgeRadius = Math.round(clamp(7 * enemyDrawScale, 5, 7));
+      ctx.font = `800 ${badgeFontSize}px Apple SD Gothic Neo, Malgun Gothic, sans-serif`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      const labelWidth = Math.max(Math.round(24 * enemyDrawScale), ctx.measureText(badge.text).width + Math.round(12 * enemyDrawScale));
+      ctx.fillStyle = badge.fill || 'rgba(15,23,42,0.82)';
+      ctx.beginPath();
+      ctx.roundRect(enemy.x - labelWidth / 2, labelY, labelWidth, badgeHeight, badgeRadius);
+      ctx.fill();
+      if (badge.stroke) {
+        ctx.strokeStyle = badge.stroke;
+        ctx.lineWidth = clamp(enemyDrawScale, 0.75, 1);
+        ctx.stroke();
+      }
+      ctx.fillStyle = badge.color || '#ffffff';
+      ctx.fillText(badge.text, enemy.x, labelY + badgeHeight / 2);
+      ctx.restore();
     }
-    ctx.fillStyle = badge.color || '#ffffff';
-    ctx.fillText(badge.text, enemy.x, labelY + badgeHeight / 2);
-    ctx.restore();
   }
 }
 
@@ -5465,7 +5735,7 @@ function drawBattle() {
   const width = battle.canvasWidth;
   const height = battle.canvasHeight;
   ctx.clearRect(0, 0, width, height);
-  drawBackground(ctx, width, height, battle);
+  if (!battleBackgroundCanvas) drawBackground(ctx, width, height, battle);
 
   drawShip(ctx, battle.ship, nowMs);
 
@@ -6392,6 +6662,8 @@ function abandonSession() {
   syncTabletFaceLayoutBasis();
   battleCanvas = null;
   battleCtx = null;
+  battleBackgroundCanvas = null;
+  battleBackgroundCtx = null;
   battleViews = [];
   currentBattleIndex = 0;
   elements.questionArea.classList.add('is-hidden');
@@ -6576,6 +6848,8 @@ function bindEvents() {
     session = null;
     battleCanvas = null;
     battleCtx = null;
+    battleBackgroundCanvas = null;
+    battleBackgroundCtx = null;
     battleViews = [];
     currentBattleIndex = 0;
     showScreen('setup');

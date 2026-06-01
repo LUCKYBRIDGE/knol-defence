@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>놀퀴즈 거북선 디펜스</title>
-    <link rel="stylesheet" href="./styles.css?v=20260601-multitouch-input" />
+    <link rel="stylesheet" href="./styles.css?v=20260602-compact-hud-map" />
   </head>
   <body class="theme-turtle" data-screen="setup">
     <div class="app-shell">
@@ -117,7 +117,7 @@
         <section class="screen play-screen is-hidden" id="play-screen" aria-live="polite">
           <div class="play-topline">
             <div class="play-left-actions">
-              <button class="ghost-action" type="button" id="exit-button">전투 중단</button>
+              <button class="ghost-action" type="button" id="exit-button" aria-label="전투 중단">중단</button>
               <button class="fullscreen-toggle play-fullscreen-toggle" type="button" aria-label="전체화면 전환">전체화면</button>
             </div>
             <div class="play-title" id="play-title">거북선 디펜스</div>
@@ -199,6 +199,6 @@
     </section>
 
     <script src="./assets/quiz/data/inline-packs.js"></script>
-    <script src="./app.js?v=20260601-render-sync-trim"></script>
+    <script src="./app.js?v=20260602-compact-hud-map"></script>
   </body>
 </html>
