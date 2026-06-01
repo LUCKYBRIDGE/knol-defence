@@ -1194,7 +1194,8 @@ select {
 .gugudan-status-check .ghost-action {
   min-height: 38px;
   padding-inline: 12px;
-  white-space: nowrap;
+  line-height: 1.15;
+  white-space: normal;
 }
 
 .gugudan-status-actions {
@@ -1206,7 +1207,7 @@ select {
 }
 
 .gugudan-status-action {
-  min-width: 148px;
+  min-width: 156px;
 }
 
 .gugudan-status-panel {

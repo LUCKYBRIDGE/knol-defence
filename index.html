@@ -70,19 +70,23 @@
                 <div class="segmented" id="player-options" role="group" aria-label="플레이 인원수"></div>
               </div>
 
-              <section class="gugudan-status-check" aria-label="내 구구단 상태 확인">
+              <section class="gugudan-status-check" aria-label="연산 누적 상태 확인">
                 <div class="gugudan-status-copy">
-                  <b>구구단 누적 상태</b>
-                  <p>저장해 둔 기록 파일을 열어 상태를 확인하거나 여러 파일을 하나로 합칩니다.</p>
+                  <b>연산 누적 상태</b>
+                  <p>저장해 둔 구구단/나눗셈 기록 파일을 열어 상태를 확인하거나 여러 파일을 하나로 합칩니다.</p>
                 </div>
                 <div class="gugudan-status-actions">
                   <button class="ghost-action gugudan-status-action" type="button" id="gugudan-status-button">내 구구단 상태 확인</button>
-                  <button class="ghost-action gugudan-status-action" type="button" id="gugudan-merge-records-button">기록 합치기</button>
+                  <button class="ghost-action gugudan-status-action" type="button" id="gugudan-merge-records-button">구구단 기록 합치기</button>
+                  <button class="ghost-action gugudan-status-action" type="button" id="division-status-button">내 나눗셈(구구단) 상태 확인</button>
+                  <button class="ghost-action gugudan-status-action" type="button" id="division-merge-records-button">나눗셈 기록 합치기</button>
                 </div>
                 <input class="is-hidden" id="gugudan-status-file" type="file" accept=".csv,text/csv" />
                 <input class="is-hidden" id="gugudan-merge-records-file" type="file" accept=".csv,text/csv" multiple />
+                <input class="is-hidden" id="division-status-file" type="file" accept=".csv,text/csv" />
+                <input class="is-hidden" id="division-merge-records-file" type="file" accept=".csv,text/csv" multiple />
                 <div class="gugudan-status-panel is-empty" id="gugudan-status-panel" role="status" aria-live="polite">
-                  기록 파일을 선택하면 구구단 상태가 여기에 표시됩니다.
+                  기록 파일을 선택하면 연산 상태가 여기에 표시됩니다.
                 </div>
               </section>
 
@@ -177,7 +181,7 @@
       <div class="gugudan-report-card">
         <div class="gugudan-report-head">
           <div>
-            <span class="screen-kicker">Gugudan Report</span>
+            <span class="screen-kicker" id="gugudan-report-kicker">Gugudan Report</span>
             <h2 id="gugudan-report-title">내 구구단 상태</h2>
             <p id="gugudan-report-subtitle">기록 파일을 선택하면 보고서가 표시됩니다.</p>
           </div>
@@ -188,6 +192,6 @@
     </section>
 
     <script src="./assets/quiz/data/inline-packs.js"></script>
-    <script src="./app.js?v=20260601-division-pack"></script>
+    <script src="./app.js?v=20260601-division-records"></script>
   </body>
 </html>
