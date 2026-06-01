@@ -5130,7 +5130,7 @@ function getStudentIdForCsv() {
 
 function getGugudanCsvFilename(studentId, merged = false) {
   const stamp = formatFileTimestamp(new Date());
-  return `gugudan-student-${studentId}${merged ? '-merged' : ''}-${stamp}.csv`;
+  return merged ? `구구단${studentId}-종합.csv` : `구구단${studentId}-${stamp}.csv`;
 }
 
 function getGugudanCsvOptions() {
