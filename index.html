@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>놀퀴즈 거북선 디펜스</title>
-    <link rel="stylesheet" href="./styles.css?v=20260601-division-pack" />
+    <link rel="stylesheet" href="./styles.css?v=20260601-status-collapse" />
   </head>
   <body class="theme-turtle" data-screen="setup">
     <div class="app-shell">
@@ -70,20 +70,27 @@
                 <div class="segmented" id="player-options" role="group" aria-label="플레이 인원수"></div>
               </div>
 
-              <section class="gugudan-status-check" aria-label="연산 누적 상태 확인">
+              <section class="gugudan-status-check is-collapsed" id="gugudan-status-check" aria-label="내 구구단/나눗셈 상태">
                 <div class="gugudan-status-copy">
-                  <b>연산 누적 상태</b>
+                  <div class="gugudan-status-title-row">
+                    <b>내 구구단/나눗셈 상태</b>
+                    <button class="gugudan-status-toggle" type="button" id="gugudan-status-toggle" aria-expanded="false" aria-controls="gugudan-status-actions gugudan-status-panel">펴기</button>
+                  </div>
                   <p>저장해 둔 구구단/나눗셈 기록 파일을 열어 상태를 확인하거나 여러 파일을 하나로 합칩니다.</p>
                 </div>
-                <div class="gugudan-status-actions">
+                <div class="gugudan-status-actions" id="gugudan-status-actions">
                   <button class="ghost-action gugudan-status-action" type="button" id="gugudan-status-button">내 구구단 상태 확인</button>
+                  <button class="ghost-action gugudan-status-action weakness-practice-action" type="button" id="gugudan-weakness-practice-button">구구단 취약점 연습</button>
                   <button class="ghost-action gugudan-status-action" type="button" id="gugudan-merge-records-button">구구단 기록 합치기</button>
                   <button class="ghost-action gugudan-status-action" type="button" id="division-status-button">내 나눗셈(구구단) 상태 확인</button>
+                  <button class="ghost-action gugudan-status-action weakness-practice-action" type="button" id="division-gugudan-weakness-practice-button">나눗셈 취약점 연습</button>
                   <button class="ghost-action gugudan-status-action" type="button" id="division-merge-records-button">나눗셈 기록 합치기</button>
                 </div>
                 <input class="is-hidden" id="gugudan-status-file" type="file" accept=".csv,text/csv" />
+                <input class="is-hidden" id="gugudan-weakness-practice-file" type="file" accept=".csv,text/csv" />
                 <input class="is-hidden" id="gugudan-merge-records-file" type="file" accept=".csv,text/csv" multiple />
                 <input class="is-hidden" id="division-status-file" type="file" accept=".csv,text/csv" />
+                <input class="is-hidden" id="division-gugudan-weakness-practice-file" type="file" accept=".csv,text/csv" />
                 <input class="is-hidden" id="division-merge-records-file" type="file" accept=".csv,text/csv" multiple />
                 <div class="gugudan-status-panel is-empty" id="gugudan-status-panel" role="status" aria-live="polite">
                   기록 파일을 선택하면 연산 상태가 여기에 표시됩니다.
@@ -192,6 +199,6 @@
     </section>
 
     <script src="./assets/quiz/data/inline-packs.js"></script>
-    <script src="./app.js?v=20260601-division-records"></script>
+    <script src="./app.js?v=20260601-perf-loop-opt2"></script>
   </body>
 </html>

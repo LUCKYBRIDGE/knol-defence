@@ -80,7 +80,7 @@ const PRACTICE_RECORD_CONFIGS = Object.freeze({
   'division-gugudan': Object.freeze({
     packId: 'division-gugudan',
     sourceLabel: '나눗셈(구구단)',
-    filePrefix: '나눗셈',
+    filePrefix: '나눗셈구구단',
     recordNoun: '나눗셈 풀이',
     statusTitle: '내 나눗셈(구구단) 상태',
     recordTitle: '나눗셈(구구단) 학습 기록 저장',
@@ -183,6 +183,66 @@ const ENEMY_STRENGTH_VARIANTS = Object.freeze({
   })
 });
 
+const ENEMY_VARIANT_VISUAL_CACHE = Object.freeze({
+  hardened: Object.freeze({
+    ...ENEMY_STRENGTH_VARIANTS.hardened.visual,
+    cacheKey: 'hardened',
+    badge: Object.freeze({
+      text: ENEMY_STRENGTH_VARIANTS.hardened.visual.label,
+      fill: ENEMY_STRENGTH_VARIANTS.hardened.visual.fill,
+      stroke: ENEMY_STRENGTH_VARIANTS.hardened.visual.stroke,
+      color: ENEMY_STRENGTH_VARIANTS.hardened.visual.color
+    }),
+    compositeCacheKey: [
+      'hardened',
+      ENEMY_STRENGTH_VARIANTS.hardened.visual.outline || '',
+      ENEMY_STRENGTH_VARIANTS.hardened.visual.outerOutline || '',
+      ...ENEMY_STRENGTH_VARIANTS.hardened.visual.tintLayers
+    ].join('|')
+  }),
+  elite: Object.freeze({
+    ...ENEMY_STRENGTH_VARIANTS.elite.visual,
+    cacheKey: 'elite',
+    badge: Object.freeze({
+      text: ENEMY_STRENGTH_VARIANTS.elite.visual.label,
+      fill: ENEMY_STRENGTH_VARIANTS.elite.visual.fill,
+      stroke: ENEMY_STRENGTH_VARIANTS.elite.visual.stroke,
+      color: ENEMY_STRENGTH_VARIANTS.elite.visual.color
+    }),
+    compositeCacheKey: [
+      'elite',
+      ENEMY_STRENGTH_VARIANTS.elite.visual.outline || '',
+      ENEMY_STRENGTH_VARIANTS.elite.visual.outerOutline || '',
+      ...ENEMY_STRENGTH_VARIANTS.elite.visual.tintLayers
+    ].join('|')
+  }),
+  eliteMax: Object.freeze({
+    ...ENEMY_STRENGTH_VARIANTS.elite.visual,
+    ...ENEMY_STRENGTH_VARIANTS.elite.visual.max,
+    cacheKey: 'elite-max',
+    badge: Object.freeze({
+      text: ENEMY_STRENGTH_VARIANTS.elite.visual.label,
+      fill: ENEMY_STRENGTH_VARIANTS.elite.visual.fill,
+      stroke: ENEMY_STRENGTH_VARIANTS.elite.visual.stroke,
+      color: ENEMY_STRENGTH_VARIANTS.elite.visual.color
+    }),
+    compositeCacheKey: [
+      'elite-max',
+      ENEMY_STRENGTH_VARIANTS.elite.visual.max.outline || ENEMY_STRENGTH_VARIANTS.elite.visual.outline || '',
+      ENEMY_STRENGTH_VARIANTS.elite.visual.max.outerOutline || ENEMY_STRENGTH_VARIANTS.elite.visual.outerOutline || '',
+      ...ENEMY_STRENGTH_VARIANTS.elite.visual.max.tintLayers
+    ].join('|')
+  })
+});
+
+const ENEMY_BADGE_EMPTY = Object.freeze({ text: '', fill: '', stroke: '', color: '' });
+const ENEMY_ROLE_BADGES = Object.freeze({
+  commander: Object.freeze({ text: '지휘', fill: 'rgba(120, 53, 15, 0.9)', stroke: 'rgba(253, 230, 138, 0.58)', color: '#fef3c7' }),
+  summoner: Object.freeze({ text: '소환', fill: 'rgba(30, 58, 138, 0.9)', stroke: 'rgba(191, 219, 254, 0.52)', color: '#dbeafe' }),
+  charger: Object.freeze({ text: '돌진', fill: 'rgba(124, 45, 18, 0.88)', stroke: 'rgba(254, 215, 170, 0.48)', color: '#ffedd5' })
+});
+const ENEMY_ALWAYS_INFO_ROLES = new Set(['commander', 'summoner', 'armored', 'adaptive']);
+
 const SHIP_SRC = './assets/battleship/battleship-ship.png';
 const ENEMY_ASSET_BASE = './assets/battleship/';
 const SHIP_SPRITE_CROP = Object.freeze({ x: 354, y: 43, width: 316, height: 482 });
@@ -262,6 +322,7 @@ const QUIZ_AUTO_NEXT_DELAY_MS = 760;
 const QUIZ_AUTO_CLOSE_DELAY_MS = 920;
 const HUD_REFRESH_INTERVAL_MS = 140;
 const CANVAS_SYNC_INTERVAL_MS = 220;
+const CANVAS_MAX_BACKING_PIXELS = 1900000;
 const MIN_START_LOADING_MS = 850;
 const SPAWN_PLAN_BUFFER = 96;
 const ENEMY_SPATIAL_CELL_SIZE = 96;
@@ -273,6 +334,7 @@ const PERFORMANCE_LAG_ENTER_SCORE = 2.5;
 const PERFORMANCE_LAG_EXIT_SCORE = 0.5;
 const PERFORMANCE_LAG_HARD_FRAME_MS = 38;
 const PERFORMANCE_LAG_SOFT_FRAME_MS = 25;
+const WEAKNESS_PRACTICE_MIN_READY_MS = 350;
 const KILL_SCORE_BASE = 25;
 const KILL_SCORE_TIER_STEP = 14;
 const KILL_SCORE_COMBO_STEP = 0.015;
@@ -303,12 +365,18 @@ const elements = {
   playerOptions: $('#player-options'),
   startButton: $('#start-button'),
   setupError: $('#setup-error'),
+  gugudanStatusCheck: $('#gugudan-status-check'),
+  gugudanStatusToggle: $('#gugudan-status-toggle'),
   gugudanStatusButton: $('#gugudan-status-button'),
   gugudanStatusFile: $('#gugudan-status-file'),
+  gugudanWeaknessPracticeButton: $('#gugudan-weakness-practice-button'),
+  gugudanWeaknessPracticeFile: $('#gugudan-weakness-practice-file'),
   gugudanMergeRecordsButton: $('#gugudan-merge-records-button'),
   gugudanMergeRecordsFile: $('#gugudan-merge-records-file'),
   divisionStatusButton: $('#division-status-button'),
   divisionStatusFile: $('#division-status-file'),
+  divisionGugudanWeaknessPracticeButton: $('#division-gugudan-weakness-practice-button'),
+  divisionGugudanWeaknessPracticeFile: $('#division-gugudan-weakness-practice-file'),
   divisionMergeRecordsButton: $('#division-merge-records-button'),
   divisionMergeRecordsFile: $('#division-merge-records-file'),
   gugudanStatusPanel: $('#gugudan-status-panel'),
@@ -357,6 +425,7 @@ let selectedMinutes = 3;
 let setupMessageKind = '';
 let startLoading = false;
 let combatAssetsWarmed = false;
+let activeWeaknessPractice = null;
 let session = null;
 let battleCanvas = null;
 let battleCtx = null;
@@ -366,6 +435,29 @@ let battleAnimationId = 0;
 let lastReportFocusElement = null;
 let lastPointerActionButton = null;
 let lastPointerActionAtMs = 0;
+let quizTextFitFrameId = 0;
+const quizTextFitRoots = new Set();
+
+const BATTLE_TEXT_REFS = [
+  'player-summary',
+  'ship-hp',
+  'wave-level',
+  'score-points',
+  'kill-combo',
+  'resource-score',
+  'attack-stat'
+];
+
+const ENEMY_OUTLINE_DIRECTIONS = Object.freeze([
+  [-1, 0],
+  [1, 0],
+  [0, -1],
+  [0, 1],
+  [-0.72, -0.72],
+  [0.72, -0.72],
+  [-0.72, 0.72],
+  [0.72, 0.72]
+]);
 
 function escapeHtml(value) {
   return String(value ?? '')
@@ -729,6 +821,243 @@ function parseGugudanCsvAggregate(text, options = {}) {
   return { factMap, studentIds, packLabels };
 }
 
+function getWeaknessPracticeLabel(packId = 'gugudan') {
+  const config = getPracticeRecordConfig(packId) || getPracticeRecordConfig('gugudan');
+  return `${config.sourceLabel} 취약점 연습`;
+}
+
+function getActiveWeaknessPractice(packId = selectedPackId) {
+  if (!activeWeaknessPractice) return null;
+  return activeWeaknessPractice.packId === packId ? activeWeaknessPractice : null;
+}
+
+function clearWeaknessPractice(message = '') {
+  if (!activeWeaknessPractice) return;
+  activeWeaknessPractice = null;
+  if (message) setSetupMessage(message, 'note');
+}
+
+function getWeaknessPracticeInput(packId = 'gugudan') {
+  return packId === 'division-gugudan'
+    ? elements.divisionGugudanWeaknessPracticeFile
+    : elements.gugudanWeaknessPracticeFile;
+}
+
+function renderWeaknessPracticeStatus(message, packId = 'gugudan', options = {}) {
+  const panel = elements.gugudanStatusPanel;
+  if (!panel) return;
+  setGugudanStatusExpanded(true);
+  const config = getPracticeRecordConfig(packId) || getPracticeRecordConfig('gugudan');
+  const busy = options.kind === 'busy';
+  const error = options.kind === 'error';
+  const metrics = Array.isArray(options.metrics) ? options.metrics : [];
+  panel.classList.remove('is-empty', 'is-error', 'is-success');
+  panel.classList.toggle('is-error', error);
+  panel.classList.toggle('is-success', !error);
+  panel.innerHTML = `
+    <div class="gugudan-status-heading">
+      <b>${escapeHtml(getWeaknessPracticeLabel(packId))}</b>
+      <span>${escapeHtml(busy ? '취약점 분석 중' : (options.fileName || '기록 파일'))}</span>
+    </div>
+    ${metrics.length ? `
+      <div class="gugudan-status-summary">
+        ${metrics.map(([label, value]) => `
+          <span>${escapeHtml(label)}</span>
+          <strong>${escapeHtml(value)}</strong>
+        `).join('')}
+      </div>
+    ` : ''}
+    <p class="gugudan-status-message${error ? '' : ' is-strong'}">${escapeHtml(message)}</p>
+    <em>선택한 기록 파일은 앱 안에 저장되지 않습니다.</em>
+  `;
+}
+
+function getPracticeAnswerRange(packId = 'gugudan') {
+  return packId === 'division-gugudan'
+    ? { min: 1, max: 9 }
+    : { min: 2, max: 81 };
+}
+
+function createPracticeChoiceValues(answer, fact, packId = 'gugudan') {
+  const safeAnswer = Math.round(Number(answer) || 0);
+  const range = getPracticeAnswerRange(packId);
+  const values = new Set([safeAnswer]);
+  const add = (value) => {
+    const next = Math.round(Number(value) || 0);
+    if (next >= range.min && next <= range.max) values.add(next);
+  };
+
+  if (packId === 'division-gugudan') {
+    add(safeAnswer - 2);
+    add(safeAnswer - 1);
+    add(safeAnswer + 1);
+    add(safeAnswer + 2);
+  } else {
+    const dan = Math.round(Number(fact?.dan) || 0);
+    const multiplier = Math.round(Number(fact?.multiplier) || 0);
+    add(dan * (multiplier - 1));
+    add(dan * (multiplier + 1));
+    add((dan - 1) * multiplier);
+    add((dan + 1) * multiplier);
+    add(safeAnswer - dan);
+    add(safeAnswer + dan);
+  }
+
+  for (let offset = 1; values.size < 4 && offset <= 12; offset += 1) {
+    add(safeAnswer - offset);
+    add(safeAnswer + offset);
+  }
+  for (let value = range.min; values.size < 4 && value <= range.max; value += 1) {
+    add(value);
+  }
+  const distractors = Array.from(values).filter((value) => value !== safeAnswer);
+  return shuffle([safeAnswer, ...shuffle(distractors).slice(0, 3)]).map(String);
+}
+
+function createWeaknessPracticeQuestion(item, packId = 'gugudan', index = 0) {
+  const config = getPracticeRecordConfig(packId) || getPracticeRecordConfig('gugudan');
+  const dan = Math.round(Number(item?.dan) || 0);
+  const multiplier = Math.round(Number(item?.multiplier) || 0);
+  const answer = packId === 'division-gugudan' ? multiplier : dan * multiplier;
+  const text = packId === 'division-gugudan'
+    ? `${dan * multiplier} ÷ ${dan} = ?`
+    : `${dan} × ${multiplier} = ?`;
+  return {
+    id: `weakness-${config.packId}-${dan}-${multiplier}-${index}`,
+    prompt: '취약점 연습 문제',
+    text,
+    choices: createPracticeChoiceValues(answer, { dan, multiplier }, packId),
+    answer: String(answer),
+    asset: false,
+    hasQuestionImage: false,
+    hasChoiceImages: false,
+    weaknessPractice: true
+  };
+}
+
+function buildWeaknessPracticeQuestions(factMap, packId = 'gugudan') {
+  const allAttempted = getSortedGugudanFacts(factMap).filter((item) => item.attempts > 0);
+  const weakFacts = allAttempted.filter((item) => item.wrong > 0);
+  const danger = sortGugudanWeakItems(weakFacts.filter((item) => getGugudanRiskLevel(item) === 'danger'));
+  const warning = sortGugudanWeakItems(weakFacts.filter((item) => getGugudanRiskLevel(item) === 'warning'));
+  const stable = allAttempted
+    .filter((item) => getGugudanRiskLevel(item) === 'ok')
+    .sort((left, right) => (
+      right.attempts - left.attempts
+      || left.dan - right.dan
+      || left.multiplier - right.multiplier
+    ));
+  const orderedWeak = [...danger, ...warning];
+  const weakWeighted = [];
+  danger.forEach((item) => {
+    for (let index = 0; index < 4; index += 1) weakWeighted.push(item);
+  });
+  warning.forEach((item) => {
+    for (let index = 0; index < 2; index += 1) weakWeighted.push(item);
+  });
+  const stableReviewCount = Math.min(stable.length, weakWeighted.length ? Math.max(1, Math.round(weakWeighted.length * 0.08)) : 0);
+  if (!weakWeighted.length) {
+    return { questions: [], dangerCount: 0, warningCount: 0, stableCount: 0, weakCount: 0 };
+  }
+  while (weakWeighted.length < Math.min(18, Math.max(6, orderedWeak.length * 3))) {
+    orderedWeak.forEach((item) => weakWeighted.push(item));
+  }
+  const questionItems = shuffle(weakWeighted);
+  shuffle(stable.slice(0, stableReviewCount)).forEach((item, index) => {
+    questionItems.splice(Math.min(questionItems.length, (index + 1) * 5), 0, item);
+  });
+  return {
+    questions: questionItems.map((item, index) => createWeaknessPracticeQuestion(item, packId, index + 1)),
+    dangerCount: danger.length,
+    warningCount: warning.length,
+    stableCount: stableReviewCount,
+    weakCount: orderedWeak.length
+  };
+}
+
+async function prepareWeaknessPracticeFromFile(file, packId = 'gugudan') {
+  if (!file) return;
+  const config = getPracticeRecordConfig(packId) || getPracticeRecordConfig('gugudan');
+  const input = getWeaknessPracticeInput(packId);
+  const startedAt = performance.now();
+  setSetupMessage('', '');
+  elements.startButton.disabled = true;
+  renderWeaknessPracticeStatus(`${config.sourceLabel} 기록을 읽고 취약 문항을 고르는 중입니다.`, packId, {
+    kind: 'busy',
+    fileName: file.name || ''
+  });
+
+  try {
+    const text = await file.text();
+    const remainingMs = WEAKNESS_PRACTICE_MIN_READY_MS - (performance.now() - startedAt);
+    if (remainingMs > 0) await wait(remainingMs);
+    const parsed = parseGugudanCsvAggregate(text, { config });
+    if (!parsed.factMap.size) {
+      activeWeaknessPractice = null;
+      renderWeaknessPracticeStatus(`${config.sourceLabel} 기록 파일을 읽지 못했습니다. 이 앱에서 저장한 CSV 파일을 선택하세요.`, packId, {
+        kind: 'error',
+        fileName: file.name || ''
+      });
+      return;
+    }
+
+    const studentIds = Array.from(parsed.studentIds).filter(Boolean);
+    if (studentIds.length > 1) {
+      activeWeaknessPractice = null;
+      renderWeaknessPracticeStatus('학생번호가 여러 개인 파일입니다. 한 학생의 종합 기록 파일을 선택해 주세요.', packId, {
+        kind: 'error',
+        fileName: file.name || ''
+      });
+      return;
+    }
+
+    const built = buildWeaknessPracticeQuestions(parsed.factMap, packId);
+    if (!built.questions.length) {
+      activeWeaknessPractice = null;
+      renderWeaknessPracticeStatus('누적 오답이 없어 취약점 연습 문제를 만들지 않았습니다. 일반 연습으로 진행해도 됩니다.', packId, {
+        kind: 'error',
+        fileName: file.name || ''
+      });
+      return;
+    }
+
+    selectedPackId = config.packId;
+    selectedMode = 'solo';
+    selectedPlayers = 1;
+    activeWeaknessPractice = {
+      packId: config.packId,
+      label: getWeaknessPracticeLabel(packId),
+      fileName: file.name || '',
+      studentText: studentIds[0] || '학생번호 없음',
+      questions: built.questions,
+      dangerCount: built.dangerCount,
+      warningCount: built.warningCount,
+      stableCount: built.stableCount,
+      weakCount: built.weakCount
+    };
+    renderSetupControls();
+    renderWeaknessPracticeStatus('준비 완료 · 게임 시작을 누르면 1인 취약점 연습으로 시작합니다.', packId, {
+      fileName: file.name || '',
+      metrics: [
+        ['학생번호', activeWeaknessPractice.studentText],
+        ['집중 연습', `${built.dangerCount}문항`],
+        ['다시 확인', `${built.warningCount}문항`],
+        ['안정 확인', `${built.stableCount}문항`],
+        ['출제 목록', `${built.questions.length}문제`]
+      ]
+    });
+  } catch (error) {
+    activeWeaknessPractice = null;
+    renderWeaknessPracticeStatus(`${config.sourceLabel} 기록 파일을 읽을 수 없습니다. 파일 형식을 확인하세요.`, packId, {
+      kind: 'error',
+      fileName: file.name || ''
+    });
+  } finally {
+    if (input) input.value = '';
+    updateSetupSummary();
+  }
+}
+
 function getSortedGugudanFacts(factMap) {
   return Array.from(factMap.values()).sort((left, right) => (
     left.dan - right.dan || left.multiplier - right.multiplier
@@ -846,6 +1175,8 @@ function showScreen(name) {
 }
 
 function getPackLabel(packId) {
+  const weaknessPractice = getActiveWeaknessPractice(packId);
+  if (weaknessPractice) return weaknessPractice.label;
   return QUIZ_PACKS.find((pack) => pack.id === packId)?.label || '퀴즈팩';
 }
 
@@ -996,6 +1327,15 @@ function setQrModalOpen(open, options = {}) {
     elements.qrCloseButton?.focus();
   } else if (options.restoreFocus !== false) {
     elements.qrToggle?.focus();
+  }
+}
+
+function setGugudanStatusExpanded(expanded) {
+  const active = Boolean(expanded);
+  elements.gugudanStatusCheck?.classList.toggle('is-collapsed', !active);
+  elements.gugudanStatusToggle?.setAttribute('aria-expanded', String(active));
+  if (elements.gugudanStatusToggle) {
+    elements.gugudanStatusToggle.textContent = active ? '접기' : '펴기';
   }
 }
 
@@ -1198,6 +1538,8 @@ function loadInlinePack(packId, pack) {
 }
 
 async function loadPack(packId) {
+  const weaknessPractice = getActiveWeaknessPractice(packId);
+  if (weaknessPractice?.questions?.length) return weaknessPractice.questions;
   if (packCache.has(packId)) return packCache.get(packId);
   const pack = QUIZ_PACKS.find((item) => item.id === packId);
   if (!pack) throw new Error('퀴즈팩을 찾을 수 없습니다.');
@@ -1262,20 +1604,11 @@ function collectQuizImageSources(questions) {
 }
 
 function getWarmupEnemyVariantStyles() {
-  const hardened = {
-    ...ENEMY_STRENGTH_VARIANTS.hardened.visual,
-    cacheKey: 'hardened'
-  };
-  const elite = {
-    ...ENEMY_STRENGTH_VARIANTS.elite.visual,
-    cacheKey: 'elite'
-  };
-  const eliteMax = {
-    ...ENEMY_STRENGTH_VARIANTS.elite.visual,
-    ...ENEMY_STRENGTH_VARIANTS.elite.visual.max,
-    cacheKey: 'elite-max'
-  };
-  return [hardened, elite, eliteMax];
+  return [
+    ENEMY_VARIANT_VISUAL_CACHE.hardened,
+    ENEMY_VARIANT_VISUAL_CACHE.elite,
+    ENEMY_VARIANT_VISUAL_CACHE.eliteMax
+  ];
 }
 
 function warmupEnemyVariantSprites() {
@@ -1408,7 +1741,8 @@ async function warmupQuizAssets(questions, updateProgress) {
 async function prepareGameStart() {
   const startedAtMs = performance.now();
   const updateProgress = (message, progress) => setStartLoading(true, message, progress);
-  updateProgress('퀴즈 데이터를 불러오는 중', 0.06);
+  const weaknessPractice = getActiveWeaknessPractice(selectedPackId);
+  updateProgress(weaknessPractice ? '취약점 연습 문제를 준비하는 중' : '퀴즈 데이터를 불러오는 중', 0.06);
   const questions = await loadPack(selectedPackId);
   updateProgress('전투 자산을 점검하는 중', 0.12);
   await warmupCombatAssets(updateProgress);
@@ -1467,6 +1801,15 @@ function createBattleState(playerIndex = 0) {
     defeatFlashUntilMs: 0,
     lastDeathPenalty: 0,
     lastDeathClearedEnemies: 0,
+    activeEffectCount: 0,
+    renderLoad: {
+      busy: false,
+      veryBusy: false,
+      performanceMode: false,
+      enemyCount: 0,
+      projectileCount: 0,
+      effectCount: 0
+    },
     flow: {
       label: '보통',
       spawnCooldownMul: 1,
@@ -1511,15 +1854,22 @@ function createBattleState(playerIndex = 0) {
       elapsedSec: 0
     },
     backgroundCache: null,
+    shipSpriteCache: null,
+    shipHpGaugeCache: null,
+    waveOverlayCache: null,
     enemies: [],
     enemiesNeedCompact: false,
     enemyPool: createEnemyPool(),
+    enemyPoolCursor: 0,
+    enemySpatialGrid: createEnemySpatialGrid(),
     projectiles: [],
     projectilesNeedCompact: false,
     projectilePool: createProjectilePool(),
+    projectilePoolCursor: 0,
     effects: [],
     effectsNeedCompact: false,
     effectPool: createEffectPool(),
+    effectPoolCursor: 0,
     effectRecycleIndex: 0,
     performanceLagScore: 0,
     performanceMode: false,
@@ -1534,7 +1884,7 @@ function createQuizState(playerIndex = 0, questions = []) {
   return {
     playerIndex,
     quizOpen: false,
-    questionQueue: shuffle(questions),
+    questionQueue: createQuestionQueue(questions),
     currentQuestion: null,
     answerLocked: false,
     selectedChoice: '',
@@ -1546,14 +1896,30 @@ function createQuizState(playerIndex = 0, questions = []) {
   };
 }
 
+function createQuestionQueue(questions = []) {
+  const items = Array.isArray(questions) ? [...questions] : [];
+  return items.some((question) => question?.weaknessPractice) ? items : shuffle(items);
+}
+
 function buildSession(questions) {
   const startedAt = new Date();
   const resolvedDisplayMode = enforceDisplayModeRules();
+  const weaknessPractice = getActiveWeaknessPractice(selectedPackId);
   const sharedBattle = selectedMode === 'coop';
   const combatSeed = hashSeed(`${selectedPackId}:${selectedPlayers}:${selectedMinutes}:${startedAt.getTime()}:${Math.random()}`);
   const sessionState = {
     packId: selectedPackId,
-    packLabel: getPackLabel(selectedPackId),
+    packLabel: weaknessPractice?.label || getPackLabel(selectedPackId),
+    weaknessPractice: weaknessPractice ? {
+      packId: weaknessPractice.packId,
+      label: weaknessPractice.label,
+      fileName: weaknessPractice.fileName,
+      studentText: weaknessPractice.studentText,
+      weakCount: weaknessPractice.weakCount,
+      dangerCount: weaknessPractice.dangerCount,
+      warningCount: weaknessPractice.warningCount,
+      stableCount: weaknessPractice.stableCount
+    } : null,
     playMode: selectedMode,
     modeLabel: getModeLabel(selectedMode, { resolvedMode: resolvedDisplayMode, playerCount: selectedPlayers }),
     displayModeChoice: selectedDisplayMode,
@@ -1569,7 +1935,7 @@ function buildSession(questions) {
     players: createPlayers(selectedPlayers),
     activePlayerIndex: 0,
     questions,
-    queue: shuffle(questions),
+    queue: createQuestionQueue(questions),
     currentQuestion: null,
     answerLocked: false,
     selectedChoice: '',
@@ -1589,7 +1955,7 @@ function buildSession(questions) {
     battle.random = createBattleRandomState(combatSeed);
     battle.spawnPlan = createSpawnPlan(combatSeed, battle.playerIndex, sessionState.durationSec);
     battle.spawnPlanIndex = 0;
-    battle.questionQueue = shuffle(questions);
+    battle.questionQueue = createQuestionQueue(questions);
   });
   return sessionState;
 }
@@ -1701,10 +2067,10 @@ function getQuizOwnerIndexFromElement(node) {
 function nextQuestion(quizState = getQuizState(currentBattleIndex)) {
   if (!session || !quizState) return null;
   if (!Array.isArray(quizState.questionQueue)) {
-    quizState.questionQueue = shuffle(session.questions);
+    quizState.questionQueue = createQuestionQueue(session.questions);
   }
   if (!quizState.questionQueue.length) {
-    quizState.questionQueue = shuffle(session.questions);
+    quizState.questionQueue = createQuestionQueue(session.questions);
   }
   const base = quizState.questionQueue.shift();
   quizState.currentQuestion = {
@@ -1825,70 +2191,58 @@ function getLateWavePressure(elapsedSec) {
   return 0;
 }
 
-function getFlowState(elapsedSec) {
+function getFlowState(elapsedSec, target = null) {
   const cyclePos = ((elapsedSec % FLOW_CYCLE_SEC) + FLOW_CYCLE_SEC) % FLOW_CYCLE_SEC;
   const pulse = Math.sin(elapsedSec * 0.45) * 0.08;
   const latePressure = getLateWavePressure(elapsedSec);
-  let flow = {
-    label: '보통',
-    spawnCooldownMul: 1,
-    speedMul: 1,
-    capBonus: 0,
-    hardenedBonus: 0
-  };
+  const flow = target || {};
+  let label = '보통';
+  let spawnCooldownMul = 1;
+  let speedMul = 1;
+  let capBonus = 0;
+  let hardenedBonus = 0;
 
   if (cyclePos >= FLOW_LULL_START_SEC && cyclePos < FLOW_LULL_END_SEC) {
-    flow = {
-      label: '완급-완',
-      spawnCooldownMul: 1.35,
-      speedMul: 0.9,
-      capBonus: -2,
-      hardenedBonus: -0.03
-    };
+    label = '완급-완';
+    spawnCooldownMul = 1.35;
+    speedMul = 0.9;
+    capBonus = -2;
+    hardenedBonus = -0.03;
   } else if (cyclePos >= FLOW_SURGE_START_SEC && cyclePos < FLOW_SURGE_END_SEC) {
-    flow = {
-      label: '러시',
-      spawnCooldownMul: 0.68,
-      speedMul: 1.18,
-      capBonus: 5,
-      hardenedBonus: 0.12
-    };
+    label = '러시';
+    spawnCooldownMul = 0.68;
+    speedMul = 1.18;
+    capBonus = 5;
+    hardenedBonus = 0.12;
   } else if (cyclePos >= FLOW_SURGE_END_SEC && cyclePos < FLOW_AFTERSHOCK_END_SEC) {
-    flow = {
-      label: '압박',
-      spawnCooldownMul: 0.84,
-      speedMul: 1.08,
-      capBonus: 2,
-      hardenedBonus: 0.06
-    };
+    label = '압박';
+    spawnCooldownMul = 0.84;
+    speedMul = 1.08;
+    capBonus = 2;
+    hardenedBonus = 0.06;
   }
 
   if (latePressure >= 1) {
-    flow = {
-      ...flow,
-      label: flow.label === '보통' ? '후반 압박' : `${flow.label} · 후반`,
-      spawnCooldownMul: flow.spawnCooldownMul * 0.94,
-      speedMul: flow.speedMul * 1.03,
-      capBonus: flow.capBonus + 2,
-      hardenedBonus: flow.hardenedBonus + 0.04
-    };
+    label = label === '보통' ? '후반 압박' : `${label} · 후반`;
+    spawnCooldownMul *= 0.94;
+    speedMul *= 1.03;
+    capBonus += 2;
+    hardenedBonus += 0.04;
   }
   if (latePressure >= 2) {
-    flow = {
-      ...flow,
-      label: flow.label.includes('후반') ? '최종 압박' : `${flow.label} · 최종`,
-      spawnCooldownMul: flow.spawnCooldownMul * 0.9,
-      speedMul: flow.speedMul * 1.04,
-      capBonus: flow.capBonus + 2,
-      hardenedBonus: flow.hardenedBonus + 0.05
-    };
+    label = label.includes('후반') ? '최종 압박' : `${label} · 최종`;
+    spawnCooldownMul *= 0.9;
+    speedMul *= 1.04;
+    capBonus += 2;
+    hardenedBonus += 0.05;
   }
 
-  return {
-    ...flow,
-    spawnCooldownMul: clamp(flow.spawnCooldownMul * (1 - pulse * 0.45), 0.55, 1.55),
-    speedMul: clamp(flow.speedMul * (1 + pulse), 0.82, 1.3)
-  };
+  flow.label = label;
+  flow.spawnCooldownMul = clamp(spawnCooldownMul * (1 - pulse * 0.45), 0.55, 1.55);
+  flow.speedMul = clamp(speedMul * (1 + pulse), 0.82, 1.3);
+  flow.capBonus = capBonus;
+  flow.hardenedBonus = hardenedBonus;
+  return flow;
 }
 
 function getShipAttackSpeedMultiplier() {
@@ -2163,19 +2517,49 @@ function renderStageShell() {
       </div>
   `;
 
-  battleViews = $$('.battle-panel', elements.gameStage).map((panel, index) => {
-    const canvas = $('.battle-canvas', panel);
-    return {
-      index,
-      panel,
-      canvas,
-      ctx: canvas.getContext('2d')
-    };
-  });
+  battleViews = $$('.battle-panel', elements.gameStage).map(createBattleView);
   elements.gameStage.onclick = handleBattleAction;
   setBattleContext(0);
   syncAllCanvasSizes();
   refreshAllBattleHuds();
+}
+
+function collectBattleDomRefs(root) {
+  const textRefs = {};
+  BATTLE_TEXT_REFS.forEach((ref) => {
+    textRefs[ref] = $$(`[data-ref="${ref}"]`, root);
+  });
+  const upgradeButtonsByAction = {};
+  UPGRADE_ACTIONS.forEach((action) => {
+    upgradeButtonsByAction[action] = $$(`[data-action="${action}"]`, root);
+  });
+  return {
+    textRefs,
+    statusNodes: $$('[data-ref="battle-status"]', root),
+    hpStatNodes: $$('.ship-hp-stat', root),
+    hpFillNodes: $$('[data-ref="ship-hp-fill"]', root),
+    quizButtons: $$('[data-action="quiz"]', root),
+    upgradeButtonsByAction
+  };
+}
+
+function createBattleView(panel, index) {
+  const canvas = $('.battle-canvas', panel);
+  return {
+    index,
+    panel,
+    canvas,
+    ctx: canvas.getContext('2d'),
+    refs: collectBattleDomRefs(panel)
+  };
+}
+
+function getBattleDomRefs(index = currentBattleIndex) {
+  const battleIndex = getGameplayBattleIndex(index);
+  const view = battleViews[battleIndex];
+  if (!view) return collectBattleDomRefs(elements.gameStage);
+  if (!view.refs) view.refs = collectBattleDomRefs(view.panel);
+  return view.refs;
 }
 
 function setUpgradeButton(button, disabled, title, meta, cost) {
@@ -2185,7 +2569,10 @@ function setUpgradeButton(button, disabled, title, meta, cost) {
   const nextDisabled = Boolean(disabled);
   if (button.disabled) button.disabled = false;
   button.classList.toggle('is-disabled', nextDisabled);
-  button.setAttribute('aria-disabled', String(nextDisabled));
+  const disabledText = String(nextDisabled);
+  if (button.getAttribute('aria-disabled') !== disabledText) {
+    button.setAttribute('aria-disabled', disabledText);
+  }
   const ariaLabel = `${title} ${meta} ${cost}`;
   if (button.getAttribute('aria-label') !== ariaLabel) {
     button.setAttribute('aria-label', ariaLabel);
@@ -2200,8 +2587,9 @@ function setUpgradeButton(button, disabled, title, meta, cost) {
   }
 }
 
-function setUpgradeButtons(root, action, disabled, title, meta, cost) {
-  $$(`[data-action="${action}"]`, root).forEach((button) => {
+function setUpgradeButtons(source, action, disabled, title, meta, cost) {
+  const buttons = source?.upgradeButtonsByAction?.[action] || $$(`[data-action="${action}"]`, source);
+  buttons.forEach((button) => {
     setUpgradeButton(button, disabled, title, meta, cost);
   });
 }
@@ -2221,9 +2609,9 @@ function refreshBattleHud(index = currentBattleIndex, options = {}) {
   battle.hudDirty = false;
   const ship = battle.ship;
   const player = session.players[isSharedBattleSession() ? getSafePlayerIndex(index) : battle.playerIndex] || session.players[0];
-  const root = getBattleRoot(index);
+  const refs = getBattleDomRefs(index);
   const setText = (ref, text) => {
-    $$(`[data-ref="${ref}"]`, root).forEach((node) => {
+    (refs.textRefs[ref] || []).forEach((node) => {
       if (node.textContent !== text) node.textContent = text;
     });
   };
@@ -2241,22 +2629,22 @@ function refreshBattleHud(index = currentBattleIndex, options = {}) {
   setText('kill-combo', `${battle.score.kills} / x${battle.score.combo}`);
   setText('resource-score', battle.score.gold.toLocaleString('ko-KR'));
   setText('attack-stat', `${ship.attackPower} · ${ship.projectileCount}발`);
-  $$('[data-ref="battle-status"]', root).forEach((toast) => {
+  refs.statusNodes.forEach((toast) => {
     if (toast.textContent !== battle.statusText) toast.textContent = battle.statusText;
     const className = `battle-status ${battle.statusTone || ''}`;
     if (toast.className !== className) toast.className = className;
   });
   const hpRatio = ship.maxHp > 0 ? clamp(ship.hp / ship.maxHp, 0, 1) : 0;
-  $$('.ship-hp-stat', root).forEach((hpStatNode) => {
+  refs.hpStatNodes.forEach((hpStatNode) => {
     hpStatNode.classList.toggle('is-warning', hpRatio <= 0.48 && hpRatio > 0.22);
     hpStatNode.classList.toggle('is-danger', hpRatio <= 0.22);
   });
-  $$('[data-ref="ship-hp-fill"]', root).forEach((hpFill) => {
+  refs.hpFillNodes.forEach((hpFill) => {
     const width = `${Math.round(hpRatio * 100)}%`;
     if (hpFill.style.width !== width) hpFill.style.width = width;
   });
 
-  const quizButtons = $$('[data-action="quiz"]', root);
+  const quizButtons = refs.quizButtons;
   if (quizButtons.length) {
     quizButtons.forEach((quizButton) => {
       const playerIndex = getPlayerIndexFromElement(quizButton);
@@ -2313,7 +2701,7 @@ function refreshBattleHud(index = currentBattleIndex, options = {}) {
     const explosionMaxed = ship.explosionLevel >= SHIP_MAX_EXPLOSION_LEVEL;
     const hullMaxed = ship.hullLevel >= SHIP_MAX_HULL_LEVEL;
     setUpgradeButtons(
-      root,
+      refs,
       'heal',
       ship.hp >= ship.maxHp || battle.score.gold < healCost || isShipRespawning(),
       '회복',
@@ -2321,7 +2709,7 @@ function refreshBattleHud(index = currentBattleIndex, options = {}) {
       `${healCost}G`
     );
     setUpgradeButtons(
-      root,
+      refs,
       'speed',
       battle.score.gold < speedCost,
       '연사',
@@ -2329,7 +2717,7 @@ function refreshBattleHud(index = currentBattleIndex, options = {}) {
       `${speedCost}G`
     );
     setUpgradeButtons(
-      root,
+      refs,
       'power',
       battle.score.gold < powerCost,
       '화력',
@@ -2337,7 +2725,7 @@ function refreshBattleHud(index = currentBattleIndex, options = {}) {
       `${powerCost}G`
     );
     setUpgradeButtons(
-      root,
+      refs,
       'projectile',
       projectileMaxed || battle.score.gold < bulletCost,
       '포탄',
@@ -2345,7 +2733,7 @@ function refreshBattleHud(index = currentBattleIndex, options = {}) {
       projectileMaxed ? 'MAX' : `${bulletCost}G`
     );
     setUpgradeButtons(
-      root,
+      refs,
       'penetration',
       penetrationMaxed || battle.score.gold < penetrationCost,
       '관통',
@@ -2353,7 +2741,7 @@ function refreshBattleHud(index = currentBattleIndex, options = {}) {
       penetrationMaxed ? 'MAX' : `${penetrationCost}G`
     );
     setUpgradeButtons(
-      root,
+      refs,
       'explosion',
       explosionMaxed || battle.score.gold < explosionCost,
       '폭발',
@@ -2361,7 +2749,7 @@ function refreshBattleHud(index = currentBattleIndex, options = {}) {
       explosionMaxed ? 'MAX' : `${explosionCost}G`
     );
     setUpgradeButtons(
-      root,
+      refs,
       'hull',
       hullMaxed || battle.score.gold < hullCost,
       '선체',
@@ -2734,13 +3122,20 @@ function quizTextFits(element, container) {
 function fitQuizTextElement(element) {
   const container = getQuizTextFitContainer(element);
   if (!container || container.clientWidth < 8 || container.clientHeight < 8) return;
+  const fitSignature = [
+    element.textContent || '',
+    Math.round(container.clientWidth),
+    Math.round(container.clientHeight),
+    element.className
+  ].join('|');
+  if (element.dataset.fitSignature === fitSignature) return;
   const max = getQuizTextFitMax(element);
   const min = 8;
   let low = min;
   let high = max;
   let best = min;
   element.style.fontSize = `${min}px`;
-  for (let index = 0; index < 8; index += 1) {
+  for (let index = 0; index < 6; index += 1) {
     const size = (low + high) / 2;
     element.style.fontSize = `${size}px`;
     if (quizTextFits(element, container)) {
@@ -2751,6 +3146,7 @@ function fitQuizTextElement(element) {
     }
   }
   element.style.fontSize = `${Math.floor(best * 10) / 10}px`;
+  element.dataset.fitSignature = fitSignature;
 }
 
 function fitQuizText(root = elements.gameStage) {
@@ -2763,7 +3159,14 @@ function fitQuizText(root = elements.gameStage) {
 }
 
 function scheduleQuizTextFit(root = elements.gameStage) {
-  window.requestAnimationFrame(() => fitQuizText(root));
+  if (root) quizTextFitRoots.add(root);
+  if (quizTextFitFrameId) return;
+  quizTextFitFrameId = window.requestAnimationFrame(() => {
+    quizTextFitFrameId = 0;
+    const roots = Array.from(quizTextFitRoots);
+    quizTextFitRoots.clear();
+    roots.forEach((targetRoot) => fitQuizText(targetRoot));
+  });
 }
 
 function renderCoopQuizOverlay() {
@@ -2997,7 +3400,9 @@ function syncCanvasSize(options = {}) {
   const size = Math.max(120, Math.round(Math.min(rect.width || 0, rect.height || 0) || rect.width || rect.height || 0));
   const width = size;
   const height = size;
-  const dpr = Math.max(1, Math.min(2, window.devicePixelRatio || 1));
+  const deviceDpr = Math.max(1, Math.min(2, window.devicePixelRatio || 1));
+  const backingPixelDpr = Math.sqrt(CANVAS_MAX_BACKING_PIXELS / Math.max(1, width * height));
+  const dpr = Math.max(1, Math.min(deviceDpr, backingPixelDpr));
   if (battleCanvas.width !== Math.round(width * dpr) || battleCanvas.height !== Math.round(height * dpr)) {
     battleCanvas.width = Math.round(width * dpr);
     battleCanvas.height = Math.round(height * dpr);
@@ -3005,6 +3410,9 @@ function syncCanvasSize(options = {}) {
     session.battle.canvasWidth = width;
     session.battle.canvasHeight = height;
     session.battle.backgroundCache = null;
+    session.battle.shipSpriteCache = null;
+    session.battle.shipHpGaugeCache = null;
+    session.battle.waveOverlayCache = null;
     session.battle.ship.x = width * 0.5;
     session.battle.ship.y = height * 0.5;
     session.battle.ship.radius = clamp(Math.min(width, height) * 0.07 * SHIP_COLLISION_RADIUS_SCALE, 16, 42);
@@ -3045,17 +3453,23 @@ function getEnemySpawnPoint(radius, plan = null) {
 }
 
 function pickSpawnDefinition(maxTier, preferHigh = false, roll01 = null) {
-  const defs = ENEMY_DEFINITIONS.filter((def) => def.tier <= maxTier);
-  const totalWeight = defs.reduce((sum, def) => (
-    sum + (preferHigh ? (1 + (def.tier - 1) * 0.42) : (1 + (maxTier - def.tier) * 0.35))
-  ), 0);
+  const safeMaxTier = clamp(Math.round(Number(maxTier) || 1), 1, ENEMY_DEFINITIONS.length);
+  let totalWeight = 0;
+  let lastDef = ENEMY_DEFINITIONS[0];
+  for (let index = 0; index < ENEMY_DEFINITIONS.length; index += 1) {
+    const def = ENEMY_DEFINITIONS[index];
+    if (def.tier > safeMaxTier) break;
+    lastDef = def;
+    totalWeight += preferHigh ? (1 + (def.tier - 1) * 0.42) : (1 + (safeMaxTier - def.tier) * 0.35);
+  }
   let roll = ((roll01 ?? battleRandom()) || 0) * totalWeight;
-  for (let index = 0; index < defs.length; index += 1) {
-    const def = defs[index];
-    roll -= preferHigh ? (1 + (def.tier - 1) * 0.42) : (1 + (maxTier - def.tier) * 0.35);
+  for (let index = 0; index < ENEMY_DEFINITIONS.length; index += 1) {
+    const def = ENEMY_DEFINITIONS[index];
+    if (def.tier > safeMaxTier) break;
+    roll -= preferHigh ? (1 + (def.tier - 1) * 0.42) : (1 + (safeMaxTier - def.tier) * 0.35);
     if (roll <= 0) return def;
   }
-  return defs[defs.length - 1] || ENEMY_DEFINITIONS[0];
+  return lastDef;
 }
 
 function createEnemyFromDefinition(def, elapsedSec, options = {}) {
@@ -3132,6 +3546,9 @@ function createEnemyFromDefinition(def, elapsedSec, options = {}) {
     speed *= 0.86;
   }
   speed *= flowSpeedMul;
+  const moveSpeedMultiplier = roleConfig.role === 'swarm'
+    ? 1.1
+    : (roleConfig.role === 'armored' ? 0.94 : 1);
 
   const radius = Math.max(12, Math.round(renderSize * (elite ? 0.31 : 0.27) * ENEMY_COLLISION_RADIUS_SCALE));
   const spawnPoint = getEnemySpawnPoint(radius, plan);
@@ -3157,6 +3574,8 @@ function createEnemyFromDefinition(def, elapsedSec, options = {}) {
     touchDamage,
     renderSize,
     hasBeenVisible: false,
+    moveSpeedMultiplier,
+    wobbleMovement: roleConfig.role === 'swarm' || roleConfig.role === 'splitter',
     wobbleSeed: ((plan?.wobbleRoll ?? battleRandom()) || 0) * Math.PI * 2
   });
   return enemy;
@@ -3264,6 +3683,8 @@ function createPooledEnemy(index = 0) {
     touchDamage: 0,
     renderSize: 0,
     hasBeenVisible: false,
+    moveSpeedMultiplier: 1,
+    wobbleMovement: false,
     wobbleSeed: 0
   };
 }
@@ -3272,15 +3693,30 @@ function createEnemyPool(size = ENEMY_POOL_SIZE) {
   return Array.from({ length: size }, (_, index) => createPooledEnemy(index));
 }
 
+function acquireInactiveFromPool(pool, owner, cursorKey) {
+  if (!Array.isArray(pool) || !pool.length) return null;
+  const startIndex = clamp(Math.round(Number(owner?.[cursorKey]) || 0), 0, pool.length - 1);
+  for (let offset = 0; offset < pool.length; offset += 1) {
+    const poolIndex = (startIndex + offset) % pool.length;
+    const item = pool[poolIndex];
+    if (item && !item.active) {
+      if (owner && cursorKey) owner[cursorKey] = (poolIndex + 1) % pool.length;
+      return item;
+    }
+  }
+  return null;
+}
+
 function acquireEnemy(battle = session?.battle) {
   if (!battle) return createPooledEnemy();
   if (!Array.isArray(battle.enemyPool) || !battle.enemyPool.length) {
     battle.enemyPool = createEnemyPool();
   }
-  const pooled = battle.enemyPool.find((enemy) => enemy && !enemy.active);
+  const pooled = acquireInactiveFromPool(battle.enemyPool, battle, 'enemyPoolCursor');
   if (pooled) return pooled;
   const overflow = createPooledEnemy(battle.enemyPool.length);
   battle.enemyPool.push(overflow);
+  battle.enemyPoolCursor = (overflow.poolIndex + 1) % battle.enemyPool.length;
   return overflow;
 }
 
@@ -3313,10 +3749,11 @@ function acquireProjectile(battle = session?.battle) {
   if (!Array.isArray(battle.projectilePool) || !battle.projectilePool.length) {
     battle.projectilePool = createProjectilePool();
   }
-  const pooled = battle.projectilePool.find((projectile) => projectile && !projectile.active);
+  const pooled = acquireInactiveFromPool(battle.projectilePool, battle, 'projectilePoolCursor');
   if (pooled) return pooled;
   const overflow = createPooledProjectile(battle.projectilePool.length);
   battle.projectilePool.push(overflow);
+  battle.projectilePoolCursor = (overflow.poolIndex + 1) % battle.projectilePool.length;
   return overflow;
 }
 
@@ -3328,7 +3765,9 @@ function shootAt(target) {
   const explosionLevel = Math.max(0, battle.ship.explosionLevel);
   const explosionRadius = getShipExplosionRadius();
   const explosionDamageRatio = getShipExplosionDamageRatio();
-  getProjectileAngleOffsets(count).forEach((offset) => {
+  const angleOffsets = getProjectileAngleOffsets(count);
+  for (let index = 0; index < angleOffsets.length; index += 1) {
+    const offset = angleOffsets[index];
     const angle = baseAngle + offset;
     const cos = Math.cos(angle);
     const sin = Math.sin(angle);
@@ -3348,7 +3787,7 @@ function shootAt(target) {
     projectile.trackHits = penetrationHits > 0;
     projectile.hitEnemyIds.length = 0;
     battle.projectiles.push(projectile);
-  });
+  }
 }
 
 function addKillReward(enemy) {
@@ -3410,7 +3849,7 @@ function removeEnemyAt(_index, enemy) {
 
 function compactRemovedEnemies(battle = session?.battle) {
   if (!battle?.enemiesNeedCompact) return;
-  battle.enemies = battle.enemies.filter((enemy) => enemy && !enemy.removed);
+  compactActiveArray(battle.enemies);
   battle.enemiesNeedCompact = false;
 }
 
@@ -3444,27 +3883,70 @@ function markProjectileRemoved(projectile) {
 
 function compactRemovedProjectiles(battle = session?.battle) {
   if (!battle?.projectilesNeedCompact) return;
-  battle.projectiles = battle.projectiles.filter((projectile) => projectile && !projectile.removed);
+  compactActiveArray(battle.projectiles);
   battle.projectilesNeedCompact = false;
+}
+
+function compactActiveArray(items, requireActive = false) {
+  if (!Array.isArray(items)) return items;
+  let writeIndex = 0;
+  for (let readIndex = 0; readIndex < items.length; readIndex += 1) {
+    const item = items[readIndex];
+    if (!item || item.removed || (requireActive && !item.active)) continue;
+    if (writeIndex !== readIndex) items[writeIndex] = item;
+    writeIndex += 1;
+  }
+  items.length = writeIndex;
+  return items;
+}
+
+function createEnemySpatialGrid() {
+  return {
+    cellSize: ENEMY_SPATIAL_CELL_SIZE,
+    buckets: new Map(),
+    bucketPool: []
+  };
+}
+
+function resetEnemySpatialGrid(grid) {
+  if (!grid?.buckets) return;
+  if (!Array.isArray(grid.bucketPool)) grid.bucketPool = [];
+  for (const bucket of grid.buckets.values()) {
+    if (!bucket) continue;
+    bucket.length = 0;
+    grid.bucketPool.push(bucket);
+  }
+  grid.buckets.clear();
+}
+
+function getEnemySpatialGridKey(cellX, cellY) {
+  return cellX * 65536 + cellY;
 }
 
 function buildEnemySpatialGrid(battle) {
   const cellSize = ENEMY_SPATIAL_CELL_SIZE;
-  const buckets = new Map();
+  const grid = battle.enemySpatialGrid || createEnemySpatialGrid();
+  battle.enemySpatialGrid = grid;
+  grid.cellSize = cellSize;
+  resetEnemySpatialGrid(grid);
+  const buckets = grid.buckets;
   for (let index = 0; index < battle.enemies.length; index += 1) {
     const enemy = battle.enemies[index];
     if (!enemy || enemy.removed) continue;
     const cellX = Math.floor(enemy.x / cellSize);
     const cellY = Math.floor(enemy.y / cellSize);
-    const key = `${cellX}:${cellY}`;
+    const key = getEnemySpatialGridKey(cellX, cellY);
     const bucket = buckets.get(key);
     if (bucket) {
       bucket.push(enemy);
     } else {
-      buckets.set(key, [enemy]);
+      const nextBucket = grid.bucketPool.pop() || [];
+      nextBucket.length = 0;
+      nextBucket.push(enemy);
+      buckets.set(key, nextBucket);
     }
   }
-  return { cellSize, buckets };
+  return grid;
 }
 
 function forEachEnemySpatialCandidate(grid, x, y, radius, callback) {
@@ -3477,13 +3959,56 @@ function forEachEnemySpatialCandidate(grid, x, y, radius, callback) {
   const maxY = Math.floor((y + safeRadius) / cellSize);
   for (let cellY = minY; cellY <= maxY; cellY += 1) {
     for (let cellX = minX; cellX <= maxX; cellX += 1) {
-      const bucket = grid.buckets.get(`${cellX}:${cellY}`);
+      const bucket = grid.buckets.get(getEnemySpatialGridKey(cellX, cellY));
       if (!bucket) continue;
       for (let index = 0; index < bucket.length; index += 1) {
         callback(bucket[index]);
       }
     }
   }
+}
+
+function findProjectileHitEnemy(grid, projectile) {
+  if (!grid?.buckets?.size || !projectile) return null;
+  const cellSize = grid.cellSize || ENEMY_SPATIAL_CELL_SIZE;
+  const safeRadius = Math.max(1, (Number(projectile.radius) || 0) + 80);
+  const minX = Math.floor((projectile.x - safeRadius) / cellSize);
+  const maxX = Math.floor((projectile.x + safeRadius) / cellSize);
+  const minY = Math.floor((projectile.y - safeRadius) / cellSize);
+  const maxY = Math.floor((projectile.y + safeRadius) / cellSize);
+  let hitEnemy = null;
+  let hitEnemyDistanceSq = Number.POSITIVE_INFINITY;
+  const trackHits = Boolean(projectile.trackHits);
+  const hitEnemyIds = trackHits ? projectile.hitEnemyIds : null;
+  const hitIdsAreArray = Array.isArray(hitEnemyIds);
+  for (let cellY = minY; cellY <= maxY; cellY += 1) {
+    for (let cellX = minX; cellX <= maxX; cellX += 1) {
+      const bucket = grid.buckets.get(getEnemySpatialGridKey(cellX, cellY));
+      if (!bucket) continue;
+      for (let index = 0; index < bucket.length; index += 1) {
+        const enemy = bucket[index];
+        if (!enemy || enemy.removed) continue;
+        if (
+          trackHits
+          && (
+            hitIdsAreArray
+              ? hitEnemyIds.includes(enemy.id)
+              : typeof hitEnemyIds?.has === 'function' && hitEnemyIds.has(enemy.id)
+          )
+        ) {
+          continue;
+        }
+        const hitRadius = projectile.radius + enemy.radius;
+        const dx = projectile.x - enemy.x;
+        const dy = projectile.y - enemy.y;
+        const projectileDistanceSq = dx * dx + dy * dy;
+        if (projectileDistanceSq > hitRadius * hitRadius || projectileDistanceSq >= hitEnemyDistanceSq) continue;
+        hitEnemy = enemy;
+        hitEnemyDistanceSq = projectileDistanceSq;
+      }
+    }
+  }
+  return hitEnemy;
 }
 
 function createPooledExplosionEffect(index = 0) {
@@ -3500,7 +4025,12 @@ function createPooledExplosionEffect(index = 0) {
     damage: 0,
     startedAtMs: 0,
     durationMs: SHIP_EXPLOSION_EFFECT_MS,
-    seed: 0
+    seed: 0,
+    radiusBucket: 0,
+    levelBucket: 1,
+    seedBucket: 0,
+    frameCachePrefix: '',
+    frameCacheSignature: ''
   };
 }
 
@@ -3520,14 +4050,18 @@ function countActiveEffects(battle = session?.battle) {
 
 function markEffectRemoved(effect, battle = session?.battle) {
   if (!effect) return;
+  const wasActive = effect.active && !effect.removed;
   effect.active = false;
   effect.removed = true;
-  if (battle) battle.effectsNeedCompact = true;
+  if (battle) {
+    if (wasActive) battle.activeEffectCount = Math.max(0, (Number(battle.activeEffectCount) || 0) - 1);
+    battle.effectsNeedCompact = true;
+  }
 }
 
 function compactRemovedEffects(battle = session?.battle) {
   if (!battle?.effectsNeedCompact) return;
-  battle.effects = battle.effects.filter((effect) => effect && effect.active && !effect.removed);
+  compactActiveArray(battle.effects, true);
   battle.effectsNeedCompact = false;
 }
 
@@ -3538,8 +4072,10 @@ function acquireExplosionEffect(battle = session?.battle) {
     battle.effectPool = createEffectPool();
   }
 
-  const reusableRemoved = battle.effects.find((effect) => effect && effect.removed);
-  if (reusableRemoved) return reusableRemoved;
+  for (let index = 0; index < battle.effects.length; index += 1) {
+    const effect = battle.effects[index];
+    if (effect && effect.removed) return effect;
+  }
 
   if (battle.effects.length >= MAX_ACTIVE_BATTLE_EFFECTS) {
     const recycleIndex = clamp(Math.round(Number(battle.effectRecycleIndex) || 0), 0, Math.max(0, battle.effects.length - 1));
@@ -3547,7 +4083,7 @@ function acquireExplosionEffect(battle = session?.battle) {
     return battle.effects[recycleIndex] || battle.effectPool[0] || null;
   }
 
-  const pooled = battle.effectPool.find((effect) => effect && !effect.active);
+  const pooled = acquireInactiveFromPool(battle.effectPool, battle, 'effectPoolCursor');
   if (pooled) {
     battle.effects.push(pooled);
     return pooled;
@@ -3556,11 +4092,30 @@ function acquireExplosionEffect(battle = session?.battle) {
   return battle.effects[0] || null;
 }
 
+function updateExplosionEffectFrameCacheFields(effect) {
+  if (!effect) return null;
+  const radius = Math.max(4, Number(effect.radius) || 0);
+  const level = Math.max(1, Math.round(Number(effect.level) || 1));
+  const radiusBucket = Math.max(4, Math.round(radius / 4) * 4);
+  const levelBucket = Math.min(16, level);
+  const seedValue = Number(effect.seed) || 0;
+  const seedBucket = Math.floor(clamp(seedValue, 0, 0.999999) * EXPLOSION_SEED_BUCKETS);
+  const signature = `${radiusBucket}:${levelBucket}:${seedBucket}`;
+  if (effect.frameCacheSignature === signature) return effect;
+  effect.radiusBucket = radiusBucket;
+  effect.levelBucket = levelBucket;
+  effect.seedBucket = seedBucket;
+  effect.frameCachePrefix = signature;
+  effect.frameCacheSignature = signature;
+  return effect;
+}
+
 function addExplosionEffect(x, y, radius, level = 1, damage = 0) {
   const battle = session?.battle;
   if (!battle || radius <= 0) return;
   const effect = acquireExplosionEffect(battle);
   if (!effect) return;
+  const wasActive = effect.active && !effect.removed;
   battle.effectSerial += 1;
   effect.id = `explosion-${battle.playerIndex}-${battle.effectSerial}`;
   effect.type = 'explosion';
@@ -3574,6 +4129,30 @@ function addExplosionEffect(x, y, radius, level = 1, damage = 0) {
   effect.startedAtMs = performance.now();
   effect.durationMs = SHIP_EXPLOSION_EFFECT_MS;
   effect.seed = battleRandom();
+  updateExplosionEffectFrameCacheFields(effect);
+  if (!wasActive) battle.activeEffectCount = (Number(battle.activeEffectCount) || 0) + 1;
+}
+
+function applyProjectileSplashDamage(enemy, sourceEnemyId, impactX, impactY, radius, splashDamage, explosionLevel) {
+  if (!enemy || enemy.removed || enemy.id === sourceEnemyId) return;
+  const maxDistance = radius + enemy.radius;
+  const dx = enemy.x - impactX;
+  const dy = enemy.y - impactY;
+  const centerDistanceSq = dx * dx + dy * dy;
+  if (centerDistanceSq > maxDistance * maxDistance) return;
+  const centerDistance = Math.sqrt(centerDistanceSq);
+  const edgeDistance = Math.max(0, centerDistance - enemy.radius);
+  if (edgeDistance > radius) return;
+  const falloff = 1 - clamp(edgeDistance / Math.max(1, radius), 0, 1);
+  const explosionDamage = Math.max(1, Math.round(splashDamage * (0.48 + falloff * 0.52)));
+  const vectorLength = Math.max(0.0001, centerDistance);
+  const knockback = (8 + explosionLevel * 2.6) * (0.3 + falloff * 0.64);
+  enemy.x += (dx / vectorLength) * knockback;
+  enemy.y += (dy / vectorLength) * knockback;
+  if (applyDamageToEnemy(enemy, explosionDamage, true)) {
+    removeEnemyAt(-1, enemy);
+    addKillReward(enemy);
+  }
 }
 
 function applyProjectileExplosion(projectile, sourceEnemyId, enemyGrid = null) {
@@ -3586,30 +4165,25 @@ function applyProjectileExplosion(projectile, sourceEnemyId, enemyGrid = null) {
   const splashDamage = Math.max(1, Math.round((Number(projectile?.damage) || 0) * damageRatio));
   const explosionLevel = Math.max(1, Number(projectile?.explosionLevel) || 1);
   addExplosionEffect(impactX, impactY, radius, explosionLevel, splashDamage);
-  const applySplashToEnemy = (enemy) => {
-    if (!enemy || enemy.removed || enemy.id === sourceEnemyId) return;
-    const maxDistance = radius + enemy.radius;
-    const centerDistanceSq = distanceSq(impactX, impactY, enemy.x, enemy.y);
-    if (centerDistanceSq > maxDistance * maxDistance) return;
-    const centerDistance = Math.sqrt(centerDistanceSq);
-    const edgeDistance = Math.max(0, centerDistance - enemy.radius);
-    if (edgeDistance > radius) return;
-    const falloff = 1 - clamp(edgeDistance / Math.max(1, radius), 0, 1);
-    const explosionDamage = Math.max(1, Math.round(splashDamage * (0.48 + falloff * 0.52)));
-    const vectorLength = Math.max(0.0001, centerDistance);
-    const knockback = (8 + explosionLevel * 2.6) * (0.3 + falloff * 0.64);
-    enemy.x += ((enemy.x - impactX) / vectorLength) * knockback;
-    enemy.y += ((enemy.y - impactY) / vectorLength) * knockback;
-    if (applyDamageToEnemy(enemy, explosionDamage, true)) {
-      removeEnemyAt(-1, enemy);
-      addKillReward(enemy);
+  if (enemyGrid?.buckets?.size) {
+    const cellSize = enemyGrid.cellSize || ENEMY_SPATIAL_CELL_SIZE;
+    const safeRadius = radius + 80;
+    const minX = Math.floor((impactX - safeRadius) / cellSize);
+    const maxX = Math.floor((impactX + safeRadius) / cellSize);
+    const minY = Math.floor((impactY - safeRadius) / cellSize);
+    const maxY = Math.floor((impactY + safeRadius) / cellSize);
+    for (let cellY = minY; cellY <= maxY; cellY += 1) {
+      for (let cellX = minX; cellX <= maxX; cellX += 1) {
+        const bucket = enemyGrid.buckets.get(getEnemySpatialGridKey(cellX, cellY));
+        if (!bucket) continue;
+        for (let index = 0; index < bucket.length; index += 1) {
+          applyProjectileSplashDamage(bucket[index], sourceEnemyId, impactX, impactY, radius, splashDamage, explosionLevel);
+        }
+      }
     }
-  };
-  if (enemyGrid) {
-    forEachEnemySpatialCandidate(enemyGrid, impactX, impactY, radius + 80, applySplashToEnemy);
   } else {
     for (let index = battle.enemies.length - 1; index >= 0; index -= 1) {
-      applySplashToEnemy(battle.enemies[index]);
+      applyProjectileSplashDamage(battle.enemies[index], sourceEnemyId, impactX, impactY, radius, splashDamage, explosionLevel);
     }
   }
 }
@@ -3624,15 +4198,15 @@ function triggerHullShockwave(touchEnemy, touchDamage) {
     const enemy = battle.enemies[index];
     if (!enemy || enemy.removed || enemy.id === touchEnemy?.id) continue;
     const maxDistance = radius + enemy.radius;
-    const distSq = distanceSq(battle.ship.x, battle.ship.y, enemy.x, enemy.y);
+    const dx = enemy.x - battle.ship.x;
+    const dy = enemy.y - battle.ship.y;
+    const distSq = dx * dx + dy * dy;
     if (distSq > maxDistance * maxDistance) continue;
     const dist = Math.sqrt(distSq);
     if (dist > radius + enemy.radius) continue;
     const falloff = 1 - clamp(dist / Math.max(radius, 1), 0, 0.78);
     const shockDamage = Math.max(1, Math.round(baseDamage * Math.max(0.3, falloff)));
-    const dx = enemy.x - battle.ship.x;
-    const dy = enemy.y - battle.ship.y;
-    const vectorLength = Math.max(0.0001, Math.hypot(dx, dy));
+    const vectorLength = Math.max(0.0001, dist);
     enemy.x += (dx / vectorLength) * (14 + hullLevel * 3);
     enemy.y += (dy / vectorLength) * (14 + hullLevel * 3);
     if (applyDamageToEnemy(enemy, shockDamage)) {
@@ -3652,23 +4226,30 @@ function isShipInvulnerable(nowMs = performance.now()) {
 
 function clearBattlefieldForRespawn(battle = session?.battle) {
   if (!battle) return 0;
-  const clearedEnemies = Array.isArray(battle.enemies)
-    ? battle.enemies.filter((enemy) => enemy && !enemy.removed).length
-    : 0;
+  let clearedEnemies = 0;
   if (Array.isArray(battle.enemies)) {
-    battle.enemies.forEach((enemy) => markEnemyRemoved(enemy));
+    for (let index = 0; index < battle.enemies.length; index += 1) {
+      const enemy = battle.enemies[index];
+      if (enemy && !enemy.removed) clearedEnemies += 1;
+      markEnemyRemoved(enemy);
+    }
   }
   battle.enemies = [];
   battle.enemiesNeedCompact = false;
   if (Array.isArray(battle.projectiles)) {
-    battle.projectiles.forEach((projectile) => markProjectileRemoved(projectile));
+    for (let index = 0; index < battle.projectiles.length; index += 1) {
+      markProjectileRemoved(battle.projectiles[index]);
+    }
   }
   battle.projectiles = [];
   battle.projectilesNeedCompact = false;
   if (Array.isArray(battle.effects)) {
-    battle.effects.forEach((effect) => markEffectRemoved(effect, battle));
+    for (let index = 0; index < battle.effects.length; index += 1) {
+      markEffectRemoved(battle.effects[index], battle);
+    }
     compactRemovedEffects(battle);
   }
+  battle.activeEffectCount = 0;
   return clearedEnemies;
 }
 
@@ -3737,7 +4318,7 @@ function updateBattle(dtSec, nowMs) {
     SPAWN_MIN_COOLDOWN_MS,
     SPAWN_START_COOLDOWN_MS - battle.waves.elapsedSec * SPAWN_DECAY_PER_SEC
   );
-  battle.flow = getFlowState(battle.waves.elapsedSec);
+  battle.flow = getFlowState(battle.waves.elapsedSec, battle.flow);
   const activeSpawnCooldown = clamp(
     battle.spawnCooldownMs * battle.flow.spawnCooldownMul,
     Math.max(280, SPAWN_MIN_COOLDOWN_MS * 0.55),
@@ -3761,7 +4342,7 @@ function updateBattle(dtSec, nowMs) {
     }
   }
 
-  let enemyGrid = buildEnemySpatialGrid(battle);
+  const enemyGrid = battle.projectiles.length ? buildEnemySpatialGrid(battle) : null;
   for (let index = battle.projectiles.length - 1; index >= 0; index -= 1) {
     const projectile = battle.projectiles[index];
     if (!projectile || projectile.removed) continue;
@@ -3777,16 +4358,7 @@ function updateBattle(dtSec, nowMs) {
       continue;
     }
     let hit = false;
-    let hitEnemy = null;
-    let hitEnemyDistanceSq = Number.POSITIVE_INFINITY;
-    forEachEnemySpatialCandidate(enemyGrid, projectile.x, projectile.y, projectile.radius + 80, (enemy) => {
-      if (!enemy || enemy.removed || projectileHasHitEnemy(projectile, enemy.id)) return;
-      const hitRadius = projectile.radius + enemy.radius;
-      const projectileDistanceSq = distanceSq(projectile.x, projectile.y, enemy.x, enemy.y);
-      if (projectileDistanceSq > hitRadius * hitRadius || projectileDistanceSq >= hitEnemyDistanceSq) return;
-      hitEnemy = enemy;
-      hitEnemyDistanceSq = projectileDistanceSq;
-    });
+    const hitEnemy = findProjectileHitEnemy(enemyGrid, projectile);
     if (hitEnemy) {
       addProjectileHitEnemy(projectile, hitEnemy.id);
       const killed = applyDamageToEnemy(hitEnemy, projectile.damage);
@@ -3807,33 +4379,45 @@ function updateBattle(dtSec, nowMs) {
   compactRemovedProjectiles(battle);
   compactRemovedEnemies(battle);
 
+  let activeEffectCount = 0;
   for (let index = battle.effects.length - 1; index >= 0; index -= 1) {
     const effect = battle.effects[index];
     if (!effect || effect.removed || !effect.active) continue;
     const durationMs = Math.max(1, Number(effect?.durationMs) || 1);
     if (nowMs - (Number(effect?.startedAtMs) || 0) >= durationMs) {
       markEffectRemoved(effect, battle);
+    } else {
+      activeEffectCount += 1;
     }
   }
+  battle.activeEffectCount = activeEffectCount;
   compactRemovedEffects(battle);
 
+  let shipSafeFromTouch = isShipRespawning(nowMs) || isShipInvulnerable(nowMs);
+  const touchDamageMultiplier = 3 * (1 - getShipDamageReductionRatio());
   for (let index = battle.enemies.length - 1; index >= 0; index -= 1) {
     const enemy = battle.enemies[index];
     if (!enemy || enemy.removed) continue;
     const shipDx = ship.x - enemy.x;
     const shipDy = ship.y - enemy.y;
     const shipDistanceSq = shipDx * shipDx + shipDy * shipDy;
-    const baseAngle = Math.atan2(shipDy, shipDx);
-    let angle = baseAngle;
-    if (enemy.role === 'swarm' || enemy.role === 'splitter') {
+    let moveX = 0;
+    let moveY = 0;
+    if (enemy.wobbleMovement) {
+      const baseAngle = Math.atan2(shipDy, shipDx);
+      let angle = baseAngle;
       angle += Math.sin(battle.worldElapsedMs * 0.004 + enemy.wobbleSeed) * 0.42;
+      moveX = Math.cos(angle);
+      moveY = Math.sin(angle);
+    } else {
+      const invDistance = 1 / Math.max(0.0001, Math.sqrt(shipDistanceSq));
+      moveX = shipDx * invDistance;
+      moveY = shipDy * invDistance;
     }
-    let speedMultiplier = 1;
-    if (enemy.role === 'swarm') speedMultiplier *= 1.1;
-    if (enemy.role === 'armored') speedMultiplier *= 0.94;
+    let speedMultiplier = Number(enemy.moveSpeedMultiplier) || 1;
     if (enemy.role === 'charger' && shipDistanceSq < 165 * 165) speedMultiplier *= 1.7;
-    enemy.x += Math.cos(angle) * enemy.speed * speedMultiplier * worldDtSec;
-    enemy.y += Math.sin(angle) * enemy.speed * speedMultiplier * worldDtSec;
+    enemy.x += moveX * enemy.speed * speedMultiplier * worldDtSec;
+    enemy.y += moveY * enemy.speed * speedMultiplier * worldDtSec;
 
     const viewportMargin = enemy.radius + 6;
     if (
@@ -3845,18 +4429,23 @@ function updateBattle(dtSec, nowMs) {
       enemy.hasBeenVisible = true;
     }
     if (!enemy.hasBeenVisible) continue;
+    if (shipSafeFromTouch) continue;
     const touchRadius = enemy.radius + ship.radius;
-    if (distanceSq(enemy.x, enemy.y, ship.x, ship.y) > touchRadius * touchRadius) continue;
-    if (isShipRespawning(nowMs) || isShipInvulnerable(nowMs)) continue;
+    const touchDx = ship.x - enemy.x;
+    const touchDy = ship.y - enemy.y;
+    if (touchDx * touchDx + touchDy * touchDy > touchRadius * touchRadius) continue;
     const touchDamage = Math.max(
       1,
-      Math.round(enemy.touchDamage * 3 * (1 - getShipDamageReductionRatio()))
+      Math.round(enemy.touchDamage * touchDamageMultiplier)
     );
     ship.hp = Math.max(0, ship.hp - touchDamage);
     removeEnemyAt(index, enemy);
     triggerHullShockwave(enemy, touchDamage);
     setBattleStatus(`거북선 피격 · HP -${touchDamage}`, 'danger');
-    if (ship.hp <= 0) triggerShipRespawn(nowMs);
+    if (ship.hp <= 0) {
+      triggerShipRespawn(nowMs);
+      shipSafeFromTouch = true;
+    }
   }
   compactRemovedEnemies(battle);
 
@@ -3949,10 +4538,10 @@ function getShipHpTone(ratio) {
   };
 }
 
-function drawShipHpGauge(ctx, ship, width) {
+function getShipHpGaugeMetrics(ship, width, battle = session?.battle) {
   const ratio = ship.maxHp > 0 ? clamp(ship.hp / ship.maxHp, 0, 1) : 0;
   const tone = getShipHpTone(ratio);
-  const visualScale = getBattleVisualScale();
+  const visualScale = getBattleVisualScale(battle);
   const compact = width < 360;
   const margin = Math.round(compact ? clamp(12 * visualScale, 7, 12) : 0);
   const barWidth = compact
@@ -3969,6 +4558,47 @@ function drawShipHpGauge(ctx, ship, width) {
   const fillWidth = Math.max(0, (barWidth - innerPad * 2) * ratio);
   const textY = y + Math.round(clamp(14 * visualScale, 8, 14));
   const barY = y + Math.round(clamp(25 * visualScale, 16, 25));
+  const roundedHp = Math.max(0, Math.round(ship.hp));
+  return {
+    ratio,
+    tone,
+    visualScale,
+    barWidth,
+    barHeight,
+    frameHeight,
+    frameRadius,
+    innerPad,
+    labelFontSize,
+    toneFontSize,
+    x,
+    y,
+    fillWidth,
+    textY,
+    barY,
+    roundedHp,
+    cacheHeight: Math.ceil(y + frameHeight + 22 * visualScale + 2)
+  };
+}
+
+function drawShipHpGaugePrimitives(ctx, ship, width, metrics) {
+  const {
+    ratio,
+    tone,
+    visualScale,
+    barWidth,
+    barHeight,
+    frameHeight,
+    frameRadius,
+    innerPad,
+    labelFontSize,
+    toneFontSize,
+    x,
+    y,
+    fillWidth,
+    textY,
+    barY,
+    roundedHp
+  } = metrics;
   ctx.save();
   ctx.shadowColor = tone.glow;
   ctx.shadowBlur = (ratio <= 0.22 ? 18 : 10) * visualScale;
@@ -3984,7 +4614,7 @@ function drawShipHpGauge(ctx, ship, width) {
   ctx.textBaseline = 'middle';
   ctx.fillText('거북선 내구도', x + Math.round(clamp(14 * visualScale, 8, 14)), textY);
   ctx.textAlign = 'right';
-  ctx.fillText(`${Math.max(0, Math.round(ship.hp))} / ${ship.maxHp}`, x + barWidth - Math.round(clamp(14 * visualScale, 8, 14)), textY);
+  ctx.fillText(`${roundedHp} / ${ship.maxHp}`, x + barWidth - Math.round(clamp(14 * visualScale, 8, 14)), textY);
 
   ctx.fillStyle = 'rgba(226, 232, 240, 0.28)';
   ctx.beginPath();
@@ -4006,15 +4636,56 @@ function drawShipHpGauge(ctx, ship, width) {
   ctx.restore();
 }
 
-function drawShip(ctx, ship, nowMs) {
-  const invulnerable = isShipInvulnerable(nowMs);
-  const respawning = isShipRespawning(nowMs);
-  const mapSize = Math.min(session.battle.canvasWidth, session.battle.canvasHeight);
+function drawShipHpGauge(ctx, ship, width) {
+  const battle = session?.battle;
+  const metrics = getShipHpGaugeMetrics(ship, width, battle);
+  const signature = [
+    Math.round(width),
+    metrics.roundedHp,
+    ship.maxHp,
+    Math.round(metrics.visualScale * 1000),
+    metrics.tone.label
+  ].join('|');
+  if (battle?.shipHpGaugeCache?.signature === signature && battle.shipHpGaugeCache.canvas) {
+    ctx.drawImage(battle.shipHpGaugeCache.canvas, 0, 0);
+    return;
+  }
+  if (!battle) {
+    drawShipHpGaugePrimitives(ctx, ship, width, metrics);
+    return;
+  }
+  const cacheCanvas = document.createElement('canvas');
+  cacheCanvas.width = Math.max(1, Math.ceil(width));
+  cacheCanvas.height = Math.max(1, metrics.cacheHeight);
+  const cacheCtx = cacheCanvas.getContext('2d');
+  if (!cacheCtx) {
+    drawShipHpGaugePrimitives(ctx, ship, width, metrics);
+    return;
+  }
+  drawShipHpGaugePrimitives(cacheCtx, ship, width, metrics);
+  battle.shipHpGaugeCache = {
+    signature,
+    canvas: cacheCanvas
+  };
+  ctx.drawImage(cacheCanvas, 0, 0);
+}
+
+function getShipRenderMetrics(battle = session?.battle) {
+  const mapSize = Math.min(Number(battle?.canvasWidth) || 0, Number(battle?.canvasHeight) || 0);
   const longEdge = clamp(mapSize * 0.24 * SHIP_RENDER_SCALE, 31, 114);
   const drawHeight = longEdge;
   const drawWidth = drawHeight * (SHIP_SPRITE_CROP.width / SHIP_SPRITE_CROP.height);
+  return { drawWidth, drawHeight };
+}
+
+function getShipImageSignature() {
+  return shipImage.complete && shipImage.naturalWidth
+    ? `image:${shipImage.naturalWidth}x${shipImage.naturalHeight}`
+    : 'fallback';
+}
+
+function drawShipSpritePrimitives(ctx, drawWidth, drawHeight, centerX, centerY) {
   ctx.save();
-  ctx.globalAlpha = respawning ? 0.26 : (invulnerable ? 0.62 + Math.sin(nowMs * 0.02) * 0.2 : 1);
   ctx.shadowColor = 'rgba(9, 24, 56, 0.28)';
   ctx.shadowBlur = 16;
   ctx.shadowOffsetY = 8;
@@ -4025,16 +4696,61 @@ function drawShip(ctx, ship, nowMs) {
       SHIP_SPRITE_CROP.y,
       SHIP_SPRITE_CROP.width,
       SHIP_SPRITE_CROP.height,
-      ship.x - drawWidth / 2,
-      ship.y - drawHeight / 2,
+      centerX - drawWidth / 2,
+      centerY - drawHeight / 2,
       drawWidth,
       drawHeight
     );
   } else {
     ctx.fillStyle = '#0f766e';
     ctx.beginPath();
-    ctx.ellipse(ship.x, ship.y, drawWidth * 0.52, drawHeight * 0.3, 0, 0, Math.PI * 2);
+    ctx.ellipse(centerX, centerY, drawWidth * 0.52, drawHeight * 0.3, 0, 0, Math.PI * 2);
     ctx.fill();
+  }
+  ctx.restore();
+}
+
+function getShipSpriteCache(battle, drawWidth, drawHeight) {
+  if (!battle) return null;
+  const signature = [
+    Math.round(drawWidth * 10),
+    Math.round(drawHeight * 10),
+    getShipImageSignature()
+  ].join('|');
+  if (battle.shipSpriteCache?.signature === signature && battle.shipSpriteCache.canvas) {
+    return battle.shipSpriteCache;
+  }
+  const pad = 34;
+  const shadowOffsetY = 8;
+  const cacheCanvas = document.createElement('canvas');
+  cacheCanvas.width = Math.max(1, Math.ceil(drawWidth + pad * 2));
+  cacheCanvas.height = Math.max(1, Math.ceil(drawHeight + pad * 2 + shadowOffsetY));
+  const cacheCtx = cacheCanvas.getContext('2d');
+  if (!cacheCtx) return null;
+  const anchorX = pad + drawWidth / 2;
+  const anchorY = pad + drawHeight / 2;
+  drawShipSpritePrimitives(cacheCtx, drawWidth, drawHeight, anchorX, anchorY);
+  battle.shipSpriteCache = {
+    signature,
+    canvas: cacheCanvas,
+    anchorX,
+    anchorY
+  };
+  return battle.shipSpriteCache;
+}
+
+function drawShip(ctx, ship, nowMs) {
+  const battle = session?.battle;
+  const invulnerable = isShipInvulnerable(nowMs);
+  const respawning = isShipRespawning(nowMs);
+  const { drawWidth, drawHeight } = getShipRenderMetrics(battle);
+  const sprite = getShipSpriteCache(battle, drawWidth, drawHeight);
+  ctx.save();
+  ctx.globalAlpha = respawning ? 0.26 : (invulnerable ? 0.62 + Math.sin(nowMs * 0.02) * 0.2 : 1);
+  if (sprite?.canvas) {
+    ctx.drawImage(sprite.canvas, ship.x - sprite.anchorX, ship.y - sprite.anchorY);
+  } else {
+    drawShipSpritePrimitives(ctx, drawWidth, drawHeight, ship.x, ship.y);
   }
   ctx.restore();
 }
@@ -4052,19 +4768,11 @@ function getDrawSizeByLongEdge(image, longEdge) {
 
 function getEnemyVariantVisual(enemy) {
   if (enemy?.elite) {
-    const base = ENEMY_STRENGTH_VARIANTS.elite.visual;
     const isMaxElite = getEliteUnlockedTier(session?.battle?.waves?.elapsedSec || 0) >= 10;
-    return {
-      ...base,
-      ...(isMaxElite ? base.max : null),
-      cacheKey: isMaxElite ? 'elite-max' : 'elite'
-    };
+    return isMaxElite ? ENEMY_VARIANT_VISUAL_CACHE.eliteMax : ENEMY_VARIANT_VISUAL_CACHE.elite;
   }
   if (enemy?.hardened) {
-    return {
-      ...ENEMY_STRENGTH_VARIANTS.hardened.visual,
-      cacheKey: 'hardened'
-    };
+    return ENEMY_VARIANT_VISUAL_CACHE.hardened;
   }
   return null;
 }
@@ -4120,51 +4828,30 @@ function getEnemySilhouetteSprite(image, color) {
 function drawEnemySilhouetteOutline(ctx, image, x, y, width, height, color, offset) {
   const silhouette = getEnemySilhouetteSprite(image, color);
   if (!silhouette) return;
-  const offsets = [
-    [-offset, 0],
-    [offset, 0],
-    [0, -offset],
-    [0, offset],
-    [-offset * 0.72, -offset * 0.72],
-    [offset * 0.72, -offset * 0.72],
-    [-offset * 0.72, offset * 0.72],
-    [offset * 0.72, offset * 0.72]
-  ];
-  offsets.forEach(([dx, dy]) => {
-    ctx.drawImage(silhouette, x + dx, y + dy, width, height);
-  });
-}
-
-function getEnemyOutlineOffsets(offset) {
-  return [
-    [-offset, 0],
-    [offset, 0],
-    [0, -offset],
-    [0, offset],
-    [-offset * 0.72, -offset * 0.72],
-    [offset * 0.72, -offset * 0.72],
-    [-offset * 0.72, offset * 0.72],
-    [offset * 0.72, offset * 0.72]
-  ];
+  for (let index = 0; index < ENEMY_OUTLINE_DIRECTIONS.length; index += 1) {
+    const direction = ENEMY_OUTLINE_DIRECTIONS[index];
+    ctx.drawImage(silhouette, x + direction[0] * offset, y + direction[1] * offset, width, height);
+  }
 }
 
 function drawCompositeOutline(ctx, image, color, x, y, width, height, offset) {
   const silhouette = getEnemySilhouetteSprite(image, color);
   if (!silhouette) return;
-  getEnemyOutlineOffsets(offset).forEach(([dx, dy]) => {
-    ctx.drawImage(silhouette, x + dx, y + dy, width, height);
-  });
+  for (let index = 0; index < ENEMY_OUTLINE_DIRECTIONS.length; index += 1) {
+    const direction = ENEMY_OUTLINE_DIRECTIONS[index];
+    ctx.drawImage(silhouette, x + direction[0] * offset, y + direction[1] * offset, width, height);
+  }
 }
 
 function getCompositeEnemySprite(image, style) {
   if (!image || !image.naturalWidth || !image.naturalHeight || !style) return null;
-  const keyParts = [
+  const detail = style.compositeCacheKey || [
     style.cacheKey || 'variant',
     style.outline || '',
     style.outerOutline || '',
     ...(Array.isArray(style.tintLayers) ? style.tintLayers : [])
-  ];
-  const cacheKey = getEnemyVariantCacheKey(image, 'composite', keyParts.join('|'));
+  ].join('|');
+  const cacheKey = getEnemyVariantCacheKey(image, 'composite', detail);
   const cached = enemyVariantSpriteCache.get(cacheKey);
   if (cached) return cached;
 
@@ -4224,30 +4911,16 @@ function getEnemyHpColor(enemy, variantStyle) {
 }
 
 function getEnemyBadge(enemy, variantStyle) {
-  if (variantStyle?.label) {
-    return {
-      text: variantStyle.label,
-      fill: variantStyle.fill,
-      stroke: variantStyle.stroke,
-      color: variantStyle.color
-    };
-  }
-  if (enemy.role === 'commander') {
-    return { text: '지휘', fill: 'rgba(120, 53, 15, 0.9)', stroke: 'rgba(253, 230, 138, 0.58)', color: '#fef3c7' };
-  }
-  if (enemy.role === 'summoner') {
-    return { text: '소환', fill: 'rgba(30, 58, 138, 0.9)', stroke: 'rgba(191, 219, 254, 0.52)', color: '#dbeafe' };
-  }
-  if (enemy.role === 'charger') {
-    return { text: '돌진', fill: 'rgba(124, 45, 18, 0.88)', stroke: 'rgba(254, 215, 170, 0.48)', color: '#ffedd5' };
-  }
-  return { text: '', fill: '', stroke: '', color: '' };
+  if (variantStyle?.badge) return variantStyle.badge;
+  return ENEMY_ROLE_BADGES[enemy.role] || ENEMY_BADGE_EMPTY;
 }
 
 function getBattleRenderLoad(battle = session?.battle) {
   const enemyCount = Number(battle?.enemies?.length) || 0;
   const projectileCount = Number(battle?.projectiles?.length) || 0;
-  const effectCount = countActiveEffects(battle);
+  const effectCount = Number.isFinite(battle?.activeEffectCount)
+    ? Math.max(0, Number(battle.activeEffectCount) || 0)
+    : countActiveEffects(battle);
   const performanceMode = Boolean(battle?.performanceMode);
   const busy = performanceMode
     || enemyCount >= BUSY_RENDER_ENEMY_COUNT
@@ -4257,7 +4930,15 @@ function getBattleRenderLoad(battle = session?.battle) {
     || enemyCount >= VERY_BUSY_RENDER_ENEMY_COUNT
     || projectileCount >= VERY_BUSY_RENDER_PROJECTILE_COUNT
     || effectCount >= 10;
-  return { busy, veryBusy, performanceMode, enemyCount, projectileCount, effectCount };
+  const renderLoad = battle?.renderLoad || {};
+  renderLoad.busy = busy;
+  renderLoad.veryBusy = veryBusy;
+  renderLoad.performanceMode = performanceMode;
+  renderLoad.enemyCount = enemyCount;
+  renderLoad.projectileCount = projectileCount;
+  renderLoad.effectCount = effectCount;
+  if (battle) battle.renderLoad = renderLoad;
+  return renderLoad;
 }
 
 function shouldDrawEnemyInfo(enemy, variantStyle, renderLoad) {
@@ -4265,20 +4946,21 @@ function shouldDrawEnemyInfo(enemy, variantStyle, renderLoad) {
   if (!renderLoad?.busy) return true;
   if (enemy.hp < enemy.maxHp) return true;
   if (variantStyle || enemy.elite || enemy.hardened) return true;
-  return ['commander', 'summoner', 'armored', 'adaptive'].includes(enemy.role);
+  return ENEMY_ALWAYS_INFO_ROLES.has(enemy.role);
 }
 
-function drawEnemy(ctx, enemy, nowMs, renderLoad = null) {
+function drawEnemy(ctx, enemy, nowMs, renderLoad = null, visualScale = getBattleVisualScale()) {
   const image = enemyImages.get(enemy.tier);
   const variantStyle = getEnemyVariantVisual(enemy);
-  const visualScale = getBattleVisualScale();
   const enemyDrawScale = clamp(visualScale * 1.1, 0.55, 1);
   const visualRadius = Math.max(8, enemy.radius * enemyDrawScale);
-  const spriteSize = image?.complete && image.naturalWidth
-    ? getDrawSizeByLongEdge(image, enemy.renderSize * enemyDrawScale)
-    : null;
-  const drawWidth = spriteSize?.width || enemy.renderSize * enemyDrawScale;
-  const drawHeight = spriteSize?.height || enemy.renderSize * enemyDrawScale;
+  let drawWidth = enemy.renderSize * enemyDrawScale;
+  let drawHeight = drawWidth;
+  if (image?.complete && image.naturalWidth && image.naturalHeight) {
+    const scale = drawWidth / Math.max(image.naturalWidth, image.naturalHeight);
+    drawWidth = image.naturalWidth * scale;
+    drawHeight = image.naturalHeight * scale;
+  }
   const drawX = enemy.x - drawWidth / 2;
   const drawY = enemy.y - drawHeight / 2;
   if ((!renderLoad?.veryBusy && !renderLoad?.performanceMode) || enemy.elite) {
@@ -4410,15 +5092,13 @@ function trimExplosionFrameCache() {
 }
 
 function getExplosionFrameSprite(effect, progress) {
-  const radius = Math.max(4, Number(effect?.radius) || 0);
-  const level = Math.max(1, Math.round(Number(effect?.level) || 1));
-  const radiusBucket = Math.max(4, Math.round(radius / 4) * 4);
-  const levelBucket = Math.min(16, level);
-  const seedValue = Number(effect?.seed) || 0;
-  const seedBucket = Math.floor(clamp(seedValue, 0, 0.999999) * EXPLOSION_SEED_BUCKETS);
+  updateExplosionEffectFrameCacheFields(effect);
+  const radiusBucket = Math.max(4, Number(effect?.radiusBucket) || 4);
+  const levelBucket = Math.max(1, Number(effect?.levelBucket) || 1);
+  const seedBucket = Math.max(0, Number(effect?.seedBucket) || 0);
   const frameIndex = clamp(Math.floor(progress * EXPLOSION_FRAME_COUNT), 0, EXPLOSION_FRAME_COUNT - 1);
   const frameProgress = clamp((frameIndex + 0.5) / EXPLOSION_FRAME_COUNT, 0, 1);
-  const cacheKey = `${radiusBucket}:${levelBucket}:${seedBucket}:${frameIndex}`;
+  const cacheKey = `${effect?.frameCachePrefix || `${radiusBucket}:${levelBucket}:${seedBucket}`}:${frameIndex}`;
   const cached = explosionFrameCache.get(cacheKey);
   if (cached) return cached;
 
@@ -4461,11 +5141,12 @@ function drawExplosionEffect(ctx, effect, nowMs) {
 
 function drawBattleEffects(ctx, effects, nowMs, width, height) {
   if (!Array.isArray(effects) || !effects.length) return;
-  effects.forEach((effect) => {
-    if (!effect || effect.removed || !effect.active) return;
-    if (!isDrawAreaVisible(effect?.x, effect?.y, effect?.radius, width, height, 12)) return;
+  for (let index = 0; index < effects.length; index += 1) {
+    const effect = effects[index];
+    if (!effect || effect.removed || !effect.active) continue;
+    if (!isDrawAreaVisible(effect?.x, effect?.y, effect?.radius, width, height, 12)) continue;
     if (effect?.type === 'explosion') drawExplosionEffect(ctx, effect, nowMs);
-  });
+  }
 }
 
 function drawDefeatFlashOverlay(ctx, battle, nowMs, width, height) {
@@ -4507,6 +5188,78 @@ function drawDefeatFlashOverlay(ctx, battle, nowMs, width, height) {
   ctx.restore();
 }
 
+function drawWaveOverlayPrimitives(ctx, battle, width) {
+  const overlayScale = getBattleVisualScale(battle);
+  const maxTier = getUnlockedEnemyTier(battle.waves.elapsedSec);
+  const eliteTier = getEliteUnlockedTier(battle.waves.elapsedSec);
+  const overlayX = Math.round(clamp(12 * overlayScale, 6, 12));
+  const tinyMap = width < 190;
+  const overlayY = tinyMap ? Math.round(clamp(39 * overlayScale, 36, 42)) : Math.round(clamp(74 * overlayScale, 42, 74));
+  const overlayWidth = tinyMap
+    ? Math.min(width - overlayX * 2, 92)
+    : Math.min(width - overlayX * 2, Math.round(clamp(168 * overlayScale, 104, 168)));
+  const overlayHeight = tinyMap ? 24 : Math.round(clamp(54 * overlayScale, 34, 54));
+  const overlayRadius = Math.round(clamp(8 * overlayScale, 5, 8));
+  ctx.save();
+  ctx.fillStyle = 'rgba(8, 19, 43, 0.78)';
+  ctx.beginPath();
+  ctx.roundRect(overlayX, overlayY, overlayWidth, overlayHeight, overlayRadius);
+  ctx.fill();
+  ctx.fillStyle = '#fff5d6';
+  if (tinyMap) {
+    ctx.font = '900 7px Apple SD Gothic Neo, Malgun Gothic, sans-serif';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(
+      `Lv.${battle.waves.level} · 01-${String(maxTier).padStart(2, '0')}${eliteTier ? ` · 특${String(eliteTier).padStart(2, '0')}` : ''}`,
+      overlayX + 6,
+      overlayY + overlayHeight / 2
+    );
+  } else {
+    ctx.font = `900 ${Math.round(clamp(14 * overlayScale, 8, 14))}px Apple SD Gothic Neo, Malgun Gothic, sans-serif`;
+    ctx.fillText(`Wave Lv.${battle.waves.level}`, overlayX + Math.round(clamp(12 * overlayScale, 7, 12)), overlayY + Math.round(clamp(20 * overlayScale, 13, 20)));
+    ctx.font = `800 ${Math.round(clamp(12 * overlayScale, 7, 12))}px Apple SD Gothic Neo, Malgun Gothic, sans-serif`;
+    ctx.fillText(`적 01-${String(maxTier).padStart(2, '0')}${eliteTier ? ` · 특수 ${String(eliteTier).padStart(2, '0')}` : ''}`, overlayX + Math.round(clamp(12 * overlayScale, 7, 12)), overlayY + Math.round(clamp(40 * overlayScale, 25, 40)));
+  }
+  ctx.restore();
+  return Math.ceil(overlayY + overlayHeight + 3);
+}
+
+function drawWaveOverlay(ctx, battle, width) {
+  const maxTier = getUnlockedEnemyTier(battle.waves.elapsedSec);
+  const eliteTier = getEliteUnlockedTier(battle.waves.elapsedSec);
+  const signature = [
+    Math.round(width),
+    battle.waves.level,
+    maxTier,
+    eliteTier,
+    Math.round(getBattleVisualScale(battle) * 1000)
+  ].join('|');
+  if (battle.waveOverlayCache?.signature === signature && battle.waveOverlayCache.canvas) {
+    ctx.drawImage(battle.waveOverlayCache.canvas, 0, 0);
+    return;
+  }
+  const cacheCanvas = document.createElement('canvas');
+  cacheCanvas.width = Math.max(1, Math.ceil(width));
+  cacheCanvas.height = Math.max(1, Math.ceil(clamp(138 * getBattleVisualScale(battle), 74, 138)));
+  const cacheCtx = cacheCanvas.getContext('2d');
+  if (!cacheCtx) {
+    drawWaveOverlayPrimitives(ctx, battle, width);
+    return;
+  }
+  const usedHeight = drawWaveOverlayPrimitives(cacheCtx, battle, width);
+  if (usedHeight > 0 && usedHeight < cacheCanvas.height) {
+    const trimmedCanvas = document.createElement('canvas');
+    trimmedCanvas.width = cacheCanvas.width;
+    trimmedCanvas.height = usedHeight;
+    trimmedCanvas.getContext('2d')?.drawImage(cacheCanvas, 0, 0);
+    battle.waveOverlayCache = { signature, canvas: trimmedCanvas };
+    ctx.drawImage(trimmedCanvas, 0, 0);
+    return;
+  }
+  battle.waveOverlayCache = { signature, canvas: cacheCanvas };
+  ctx.drawImage(cacheCanvas, 0, 0);
+}
+
 function isDrawAreaVisible(x, y, radius, width, height, margin = 0) {
   const extent = Math.max(0, Number(radius) || 0) + Math.max(0, Number(margin) || 0);
   return x + extent >= 0
@@ -4537,9 +5290,8 @@ function drawProjectileGroup(ctx, projectiles, width, height, hasExplosion) {
   ctx.stroke();
 }
 
-function drawProjectiles(ctx, projectiles, width, height) {
+function drawProjectiles(ctx, projectiles, width, height, renderLoad = getBattleRenderLoad()) {
   if (!Array.isArray(projectiles) || !projectiles.length) return;
-  const renderLoad = getBattleRenderLoad();
   ctx.save();
   ctx.lineWidth = renderLoad.performanceMode ? 0.85 : PROJECTILE_RENDER_STROKE_WIDTH;
   ctx.fillStyle = '#f9e27d';
@@ -4571,49 +5323,17 @@ function drawBattle() {
     if (!enemy || enemy.removed) continue;
     const drawRadius = Math.max(enemy.radius, enemy.renderSize * visualScale * 0.68);
     if (isDrawAreaVisible(enemy.x, enemy.y, drawRadius, width, height, 34)) {
-      drawEnemy(ctx, enemy, nowMs, renderLoad);
+      drawEnemy(ctx, enemy, nowMs, renderLoad, visualScale);
     }
   }
 
-  drawProjectiles(ctx, battle.projectiles, width, height);
+  drawProjectiles(ctx, battle.projectiles, width, height, renderLoad);
 
   drawBattleEffects(ctx, battle.effects, nowMs, width, height);
 
   if (!isTabletFaceToFaceSession()) {
     drawShipHpGauge(ctx, battle.ship, width);
-
-    ctx.save();
-    const overlayScale = getBattleVisualScale(battle);
-    const maxTier = getUnlockedEnemyTier(battle.waves.elapsedSec);
-    const eliteTier = getEliteUnlockedTier(battle.waves.elapsedSec);
-    const overlayX = Math.round(clamp(12 * overlayScale, 6, 12));
-    const tinyMap = width < 190;
-    const overlayY = tinyMap ? Math.round(clamp(39 * overlayScale, 36, 42)) : Math.round(clamp(74 * overlayScale, 42, 74));
-    const overlayWidth = tinyMap
-      ? Math.min(width - overlayX * 2, 92)
-      : Math.min(width - overlayX * 2, Math.round(clamp(168 * overlayScale, 104, 168)));
-    const overlayHeight = tinyMap ? 24 : Math.round(clamp(54 * overlayScale, 34, 54));
-    const overlayRadius = Math.round(clamp(8 * overlayScale, 5, 8));
-    ctx.fillStyle = 'rgba(8, 19, 43, 0.78)';
-    ctx.beginPath();
-    ctx.roundRect(overlayX, overlayY, overlayWidth, overlayHeight, overlayRadius);
-    ctx.fill();
-    ctx.fillStyle = '#fff5d6';
-    if (tinyMap) {
-      ctx.font = '900 7px Apple SD Gothic Neo, Malgun Gothic, sans-serif';
-      ctx.textBaseline = 'middle';
-      ctx.fillText(
-        `Lv.${battle.waves.level} · 01-${String(maxTier).padStart(2, '0')}${eliteTier ? ` · 특${String(eliteTier).padStart(2, '0')}` : ''}`,
-        overlayX + 6,
-        overlayY + overlayHeight / 2
-      );
-    } else {
-      ctx.font = `900 ${Math.round(clamp(14 * overlayScale, 8, 14))}px Apple SD Gothic Neo, Malgun Gothic, sans-serif`;
-      ctx.fillText(`Wave Lv.${battle.waves.level}`, overlayX + Math.round(clamp(12 * overlayScale, 7, 12)), overlayY + Math.round(clamp(20 * overlayScale, 13, 20)));
-      ctx.font = `800 ${Math.round(clamp(12 * overlayScale, 7, 12))}px Apple SD Gothic Neo, Malgun Gothic, sans-serif`;
-      ctx.fillText(`적 01-${String(maxTier).padStart(2, '0')}${eliteTier ? ` · 특수 ${String(eliteTier).padStart(2, '0')}` : ''}`, overlayX + Math.round(clamp(12 * overlayScale, 7, 12)), overlayY + Math.round(clamp(40 * overlayScale, 25, 40)));
-    }
-    ctx.restore();
+    drawWaveOverlay(ctx, battle, width);
   }
 
   drawDefeatFlashOverlay(ctx, battle, nowMs, width, height);
@@ -4622,7 +5342,10 @@ function drawBattle() {
 function getBattleDrawIntervalMs(battle) {
   if (!battle) return 0;
   const mapSize = Math.min(Number(battle.canvasWidth) || 0, Number(battle.canvasHeight) || 0);
-  const busyCombat = battle.projectiles.length >= 28 || countActiveEffects(battle) >= 6 || battle.enemies.length >= 18;
+  const effectCount = Number.isFinite(battle.activeEffectCount)
+    ? Math.max(0, Number(battle.activeEffectCount) || 0)
+    : countActiveEffects(battle);
+  const busyCombat = battle.projectiles.length >= 28 || effectCount >= 6 || battle.enemies.length >= 18;
   const busyQuiz = isTabletFaceToFaceSession()
     && session.playerQuizStates.some((quizState) => quizState.quizOpen);
   if (battle.performanceMode && (busyCombat || mapSize >= 640)) return isTabletFaceToFaceSession() ? 34 : 28;
@@ -4700,7 +5423,7 @@ function updateTimer() {
   if (!session) return;
   const remainingMs = session.deadlineAt - Date.now();
   const clock = formatClock(remainingMs / 1000);
-  elements.timerPill.textContent = clock;
+  if (elements.timerPill.textContent !== clock) elements.timerPill.textContent = clock;
   if (remainingMs <= 0) finishSession();
 }
 
@@ -5053,6 +5776,7 @@ function renderGugudanStatusReport(record, fileName = '', options = {}) {
 function setGugudanStatusPanel(message = '기록 파일을 선택하면 연산 상태가 여기에 표시됩니다.', kind = '') {
   const panel = elements.gugudanStatusPanel;
   if (!panel) return;
+  if (kind) setGugudanStatusExpanded(true);
   panel.textContent = message;
   panel.classList.toggle('is-empty', !kind);
   panel.classList.toggle('is-error', kind === 'error');
@@ -5062,6 +5786,7 @@ function setGugudanStatusPanel(message = '기록 파일을 선택하면 연산 �
 function renderGugudanStatusPanel(record, fileName = '', options = {}) {
   const panel = elements.gugudanStatusPanel;
   if (!panel) return;
+  setGugudanStatusExpanded(true);
   const config = options.config || getPracticeRecordConfig(options.packId) || getPracticeRecordConfig('gugudan');
   const summary = getGugudanAggregateSummary(record.factMap);
   const studentIds = Array.from(record.studentIds).filter(Boolean).sort((left, right) => left.localeCompare(right, 'ko-KR'));
@@ -5216,8 +5941,11 @@ function renderGugudanRecordPanel() {
   if (!panel) return;
   const visible = isGugudanSoloRecordResult();
   const config = getPracticeRecordConfig(session?.packId) || getPracticeRecordConfig('gugudan');
+  const recordTitle = session?.weaknessPractice?.label
+    ? `${session.weaknessPractice.label} 기록 저장`
+    : config.recordTitle;
   panel.classList.toggle('is-hidden', !visible);
-  panel.setAttribute('aria-label', config.recordTitle);
+  panel.setAttribute('aria-label', recordTitle);
   resultModal?.classList.toggle('has-gugudan-record', visible);
   if (!visible) {
     setGugudanRecordStatus();
@@ -5228,7 +5956,7 @@ function renderGugudanRecordPanel() {
   const summaryText = getGugudanWeaknessText(factMap, config);
   const title = $('.gugudan-record-copy b', panel);
   const copy = $('.gugudan-record-copy p', panel);
-  if (title) title.textContent = config.recordTitle;
+  if (title) title.textContent = recordTitle;
   if (copy) {
     copy.textContent = `${summaryText} 학생번호는 기록 파일에만 들어가며 앱 안에는 저장하지 않습니다.`;
   }
@@ -5264,7 +5992,7 @@ function getGugudanCsvOptions() {
     minutes: session?.minutes || '',
     playedText: formatClock(summary.playedSec || 0),
     config,
-    sourceLabel: config.sourceLabel
+    sourceLabel: session?.weaknessPractice?.label || config.sourceLabel
   };
 }
 
@@ -5544,7 +6272,12 @@ function abandonSession() {
 function bindEvents() {
   elements.quizPack.addEventListener('change', () => {
     selectedPackId = elements.quizPack.value;
+    const clearedWeaknessPractice = Boolean(activeWeaknessPractice);
+    if (clearedWeaknessPractice) clearWeaknessPractice();
     updateSetupSummary();
+    if (clearedWeaknessPractice) {
+      setSetupMessage('취약점 연습을 해제했습니다. 선택한 퀴즈팩으로 시작합니다.', 'note');
+    }
   });
 
   elements.playMinutes.addEventListener('change', () => {
@@ -5559,7 +6292,12 @@ function bindEvents() {
     selectedMode = PLAY_MODES.some((mode) => mode.id === button.dataset.mode)
       ? button.dataset.mode
       : 'solo';
+    const clearedWeaknessPractice = Boolean(activeWeaknessPractice && selectedMode !== 'solo');
+    if (clearedWeaknessPractice) clearWeaknessPractice();
     updateSetupSummary();
+    if (clearedWeaknessPractice) {
+      setSetupMessage('취약점 연습은 1인 각자 풀기 전용입니다. 일반 플레이로 전환했습니다.', 'note');
+    }
   });
 
   elements.displayModeToggle?.addEventListener('click', selectNextDisplayMode);
@@ -5587,10 +6325,15 @@ function bindEvents() {
   });
 
   elements.tabletPromoButton?.addEventListener('click', () => {
+    const clearedWeaknessPractice = Boolean(activeWeaknessPractice);
+    if (clearedWeaknessPractice) clearWeaknessPractice();
     selectedDisplayMode = 'tablet';
     selectedMode = 'coop';
     selectedPlayers = 2;
     updateSetupSummary();
+    if (clearedWeaknessPractice) {
+      setSetupMessage('취약점 연습은 1인 전용이라 해제했습니다. 태블릿 2인 모드로 전환했습니다.', 'note');
+    }
   });
 
   elements.playerOptions.addEventListener('click', (event) => {
@@ -5598,12 +6341,21 @@ function bindEvents() {
     if (!button) return;
     if (button.disabled) return;
     selectedPlayers = Number(button.dataset.players) || 1;
+    const clearedWeaknessPractice = Boolean(activeWeaknessPractice && selectedPlayers !== 1);
+    if (clearedWeaknessPractice) clearWeaknessPractice();
     updateSetupSummary();
+    if (clearedWeaknessPractice) {
+      setSetupMessage('취약점 연습은 1인 전용입니다. 일반 플레이로 전환했습니다.', 'note');
+    }
   });
 
   elements.startButton.addEventListener('click', startSelectedGame);
   elements.exitButton.addEventListener('click', abandonSession);
   elements.backSetupButton.addEventListener('click', abandonSession);
+  elements.gugudanStatusToggle?.addEventListener('click', () => {
+    const expanded = elements.gugudanStatusToggle.getAttribute('aria-expanded') === 'true';
+    setGugudanStatusExpanded(!expanded);
+  });
   elements.gugudanStatusButton?.addEventListener('click', () => {
     if (!elements.gugudanStatusFile) return;
     elements.gugudanStatusFile.value = '';
@@ -5612,6 +6364,14 @@ function bindEvents() {
   elements.gugudanStatusFile?.addEventListener('change', () => {
     const file = elements.gugudanStatusFile.files?.[0];
     loadGugudanStatusCsv(file, 'gugudan');
+  });
+  elements.gugudanWeaknessPracticeButton?.addEventListener('click', () => {
+    if (!elements.gugudanWeaknessPracticeFile) return;
+    elements.gugudanWeaknessPracticeFile.value = '';
+    elements.gugudanWeaknessPracticeFile.click();
+  });
+  elements.gugudanWeaknessPracticeFile?.addEventListener('change', () => {
+    prepareWeaknessPracticeFromFile(elements.gugudanWeaknessPracticeFile.files?.[0], 'gugudan');
   });
   elements.gugudanMergeRecordsButton?.addEventListener('click', () => {
     if (!elements.gugudanMergeRecordsFile) return;
@@ -5629,6 +6389,14 @@ function bindEvents() {
   elements.divisionStatusFile?.addEventListener('change', () => {
     const file = elements.divisionStatusFile.files?.[0];
     loadGugudanStatusCsv(file, 'division-gugudan');
+  });
+  elements.divisionGugudanWeaknessPracticeButton?.addEventListener('click', () => {
+    if (!elements.divisionGugudanWeaknessPracticeFile) return;
+    elements.divisionGugudanWeaknessPracticeFile.value = '';
+    elements.divisionGugudanWeaknessPracticeFile.click();
+  });
+  elements.divisionGugudanWeaknessPracticeFile?.addEventListener('change', () => {
+    prepareWeaknessPracticeFromFile(elements.divisionGugudanWeaknessPracticeFile.files?.[0], 'division-gugudan');
   });
   elements.divisionMergeRecordsButton?.addEventListener('click', () => {
     if (!elements.divisionMergeRecordsFile) return;
@@ -5758,6 +6526,8 @@ window.__KNOLQUIZ_TEST__ = {
         touchDamage: 1,
         renderSize: 50,
         hasBeenVisible: true,
+        moveSpeedMultiplier: 1.1,
+        wobbleMovement: true,
         wobbleSeed: battleRandom() * Math.PI * 2
       });
       battle.enemies.push(enemy);
@@ -5797,6 +6567,8 @@ window.__KNOLQUIZ_TEST__ = {
       touchDamage: 8,
       renderSize: 52,
       hasBeenVisible: true,
+      moveSpeedMultiplier: 1.1,
+      wobbleMovement: true,
       wobbleSeed: 0
     });
     battle.enemies.push(enemy);

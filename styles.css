@@ -1176,6 +1176,14 @@ select {
   min-width: 0;
 }
 
+.gugudan-status-title-row {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
 .gugudan-status-copy b {
   display: block;
   color: #0f3b4a;
@@ -1189,6 +1197,36 @@ select {
   font-size: 11px;
   font-weight: 800;
   line-height: 1.35;
+}
+
+.gugudan-status-toggle {
+  flex: 0 0 auto;
+  min-height: 30px;
+  border: 1px solid rgba(15, 118, 110, 0.28);
+  border-radius: 8px;
+  background: #ffffff;
+  color: #0f766e;
+  padding: 4px 10px;
+  font-size: 11px;
+  font-weight: 900;
+  box-shadow: 0 2px 0 rgba(20, 32, 47, 0.08);
+}
+
+.gugudan-status-toggle:hover,
+.gugudan-status-toggle:focus-visible {
+  border-color: #0f766e;
+  background: #eef8f9;
+}
+
+.gugudan-status-check.is-collapsed {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0;
+}
+
+.gugudan-status-check.is-collapsed .gugudan-status-copy p,
+.gugudan-status-check.is-collapsed .gugudan-status-actions,
+.gugudan-status-check.is-collapsed .gugudan-status-panel {
+  display: none;
 }
 
 .gugudan-status-check .ghost-action {
@@ -1208,6 +1246,12 @@ select {
 
 .gugudan-status-action {
   min-width: 156px;
+}
+
+.weakness-practice-action {
+  border-color: rgba(37, 99, 235, 0.28);
+  background: linear-gradient(180deg, #ffffff, #eef6ff);
+  color: #174ea6;
 }
 
 .gugudan-status-panel {
@@ -6126,5 +6170,211 @@ body[data-screen="play"][data-tablet-face="true"] .play-topline .timer-pill {
   body[data-screen="play"][data-tablet-face="true"] .battle-panel-tablet .tablet-upgrade-grid .upgrade-button {
     height: 27px;
     min-height: 27px;
+  }
+}
+
+/* Compact controls: keep tap targets readable without letting buttons consume the play map. */
+.battle-command {
+  align-content: start;
+}
+
+.battle-control-row,
+.coop-quiz-buttons {
+  align-items: start;
+}
+
+.quiz-open-button {
+  height: auto;
+  min-height: 38px;
+  padding: 0 10px;
+  display: grid;
+  place-items: center;
+  align-self: start;
+  line-height: 1.08;
+}
+
+.split-count-2 .quiz-open-button {
+  min-height: 34px;
+  height: 34px;
+  font-size: 12px;
+}
+
+.split-count-3 .quiz-open-button,
+.split-count-4 .quiz-open-button {
+  min-height: 30px;
+  height: 30px;
+  font-size: 11px;
+}
+
+.split-count-2 .battle-command,
+.split-count-3 .battle-command,
+.split-count-4 .battle-command {
+  align-content: start;
+}
+
+.split-count-2 .battle-stat,
+.split-count-3 .battle-stat,
+.split-count-4 .battle-stat {
+  align-content: start;
+}
+
+.split-count-2 .upgrade-button,
+.split-count-3 .upgrade-button,
+.split-count-4 .upgrade-button {
+  min-height: 30px;
+}
+
+.split-count-2 .battle-panel:not(.battle-panel-tablet) {
+  grid-template-columns: minmax(0, 1fr) minmax(150px, 0.34fr);
+}
+
+.split-count-2 .upgrade-button {
+  height: 34px;
+  min-height: 34px;
+  padding: 3px 4px;
+}
+
+.split-count-2 .upgrade-button span {
+  font-size: 11px;
+}
+
+.split-count-2 .upgrade-button small {
+  font-size: 8px;
+}
+
+@media (max-width: 720px) {
+  .gugudan-status-actions {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 5px;
+  }
+
+  .gugudan-status-check .ghost-action,
+  .gugudan-status-action {
+    min-height: 34px;
+    padding: 5px 7px;
+    font-size: 12px;
+  }
+
+  .quiz-open-button {
+    min-height: 34px;
+    height: 34px;
+    font-size: 12px;
+  }
+
+  .battle-command {
+    gap: 5px;
+  }
+}
+
+@media (max-width: 340px) {
+  .gugudan-status-actions {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-height: 760px) {
+  .split-count-2 .quiz-open-button,
+  .split-count-3 .quiz-open-button,
+  .split-count-4 .quiz-open-button {
+    min-height: 28px;
+    height: 28px;
+  }
+
+  .split-count-2 .upgrade-button,
+  .split-count-3 .upgrade-button,
+  .split-count-4 .upgrade-button {
+    min-height: 26px;
+    height: 26px;
+  }
+}
+
+@media (max-width: 1100px) {
+  .split-count-2 .battle-panel:not(.battle-panel-tablet) {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr) auto;
+  }
+
+  .split-count-2 .battle-panel:not(.battle-panel-tablet) .battle-player-head {
+    grid-column: 1;
+    grid-row: 1;
+  }
+
+  .split-count-2 .battle-panel:not(.battle-panel-tablet) .battlefield-slot {
+    grid-column: 1;
+    grid-row: 2;
+  }
+
+  .split-count-2 .battle-panel:not(.battle-panel-tablet) .battle-command {
+    grid-column: 1;
+    grid-row: 3;
+    overflow: hidden;
+    gap: 4px;
+  }
+
+  .split-count-2 .battle-panel:not(.battle-panel-tablet) .battle-stat-grid {
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+    gap: 4px;
+  }
+
+  .split-count-2 .battle-panel:not(.battle-panel-tablet) .battle-stat {
+    min-height: 40px;
+    padding: 4px 5px;
+  }
+
+  .split-count-2 .battle-panel:not(.battle-panel-tablet) .battle-stat b {
+    font-size: 9px;
+  }
+
+  .split-count-2 .battle-panel:not(.battle-panel-tablet) .battle-stat span {
+    font-size: 11px;
+  }
+
+  .split-count-2 .battle-panel:not(.battle-panel-tablet) .battle-control-row {
+    grid-template-columns: minmax(104px, 0.22fr) minmax(0, 1fr);
+    gap: 4px;
+  }
+
+  .split-count-2 .battle-panel:not(.battle-panel-tablet) .battle-status {
+    min-height: 34px;
+    padding: 4px 6px;
+    font-size: 11px;
+  }
+
+  .split-count-2 .battle-panel:not(.battle-panel-tablet) .upgrade-grid {
+    grid-template-columns: repeat(7, minmax(0, 1fr));
+    gap: 4px;
+  }
+
+  .split-count-2 .battle-panel:not(.battle-panel-tablet) .upgrade-button {
+    height: 30px;
+    min-height: 30px;
+  }
+}
+
+/* Four-player layouts must remain one row of four equal player areas. */
+.split-battle-grid.split-count-4 {
+  --split-count: 4;
+  grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+  grid-template-rows: minmax(0, 1fr);
+}
+
+.coop-player-control-grid.player-count-4,
+.coop-quiz-split-grid.player-count-4,
+.player-results.player-count-4.is-primary-results {
+  grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+}
+
+@media (max-width: 1180px) {
+  .battle-panel-coop:not(.battle-panel-tablet) .coop-player-control-grid.player-count-4 {
+    grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+  }
+}
+
+@media (max-width: 720px) {
+  .split-battle-grid.split-count-4,
+  .coop-player-control-grid.player-count-4,
+  .coop-quiz-split-grid.player-count-4,
+  .player-results.player-count-4.is-primary-results {
+    gap: 3px;
   }
 }
