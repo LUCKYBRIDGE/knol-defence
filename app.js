@@ -35,6 +35,12 @@ const QUIZ_PACKS = [
     path: './assets/quiz/data/gugudan-2to9.csv'
   },
   {
+    id: 'division-gugudan',
+    label: '나눗셈(구구단)',
+    kind: 'csv',
+    path: './assets/quiz/data/division-gugudan-2to9.csv'
+  },
+  {
     id: 'facecolor',
     label: '전개도: 평행한 면',
     kind: 'json',
