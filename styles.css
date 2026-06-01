@@ -6378,3 +6378,139 @@ body[data-screen="play"][data-tablet-face="true"] .play-topline .timer-pill {
     gap: 3px;
   }
 }
+
+/* Coop 4P controls: keep the same 1x4 ownership as quiz split slots. */
+.battle-panel-coop:not(.battle-panel-tablet) .coop-player-control-grid.player-count-4 {
+  grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+  align-items: stretch;
+  gap: 6px;
+}
+
+.battle-panel-coop:not(.battle-panel-tablet) .coop-player-control-grid.player-count-4 .coop-player-control-card {
+  min-height: 88px;
+  padding: 6px;
+  display: grid;
+  grid-template-columns: minmax(52px, 0.34fr) minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr);
+  align-items: stretch;
+  gap: 5px;
+  overflow: hidden;
+}
+
+.battle-panel-coop:not(.battle-panel-tablet) .coop-player-control-grid.player-count-4 .coop-player-control-head {
+  grid-column: 1;
+  grid-row: 1;
+  align-self: stretch;
+  gap: 4px;
+}
+
+.battle-panel-coop:not(.battle-panel-tablet) .coop-player-control-grid.player-count-4 .coop-player-control-head span {
+  width: 24px;
+  height: 24px;
+  border-radius: 7px;
+  font-size: 10px;
+}
+
+.battle-panel-coop:not(.battle-panel-tablet) .coop-player-control-grid.player-count-4 .coop-player-control-head b {
+  font-size: 11px;
+}
+
+.battle-panel-coop:not(.battle-panel-tablet) .coop-player-control-grid.player-count-4 .player-control-quiz {
+  grid-column: 2;
+  grid-row: 1;
+  width: 100%;
+  min-height: 30px;
+  height: 30px;
+  padding: 3px 6px;
+  align-self: stretch;
+  justify-self: stretch;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 5px;
+}
+
+.battle-panel-coop:not(.battle-panel-tablet) .coop-player-control-grid.player-count-4 .player-control-quiz span {
+  width: 20px;
+  height: 20px;
+  border-radius: 6px;
+  font-size: 9px;
+}
+
+.battle-panel-coop:not(.battle-panel-tablet) .coop-player-control-grid.player-count-4 .player-control-quiz b {
+  font-size: 11px;
+}
+
+.battle-panel-coop:not(.battle-panel-tablet) .coop-player-control-grid.player-count-4 .player-upgrade-grid {
+  grid-column: 1 / -1;
+  grid-row: 2;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 4px;
+  align-self: stretch;
+}
+
+.battle-panel-coop:not(.battle-panel-tablet) .coop-player-control-grid.player-count-4 .player-upgrade-grid .upgrade-button {
+  min-width: 0;
+  min-height: 25px;
+  height: 25px;
+  padding: 2px 3px;
+  place-content: center;
+  gap: 1px;
+}
+
+.battle-panel-coop:not(.battle-panel-tablet) .coop-player-control-grid.player-count-4 .player-upgrade-grid .upgrade-button span {
+  font-size: 9px;
+  line-height: 1;
+}
+
+.battle-panel-coop:not(.battle-panel-tablet) .coop-player-control-grid.player-count-4 .player-upgrade-grid .upgrade-button small {
+  display: block;
+  font-size: 7px;
+  line-height: 1;
+}
+
+@media (max-width: 1180px) {
+  .battle-panel-coop:not(.battle-panel-tablet) .coop-player-control-grid.player-count-4 {
+    gap: 4px;
+  }
+
+  .battle-panel-coop:not(.battle-panel-tablet) .coop-player-control-grid.player-count-4 .coop-player-control-card {
+    min-height: 82px;
+    padding: 5px;
+    grid-template-columns: minmax(38px, 0.28fr) minmax(0, 1fr);
+    gap: 4px;
+  }
+
+  .battle-panel-coop:not(.battle-panel-tablet) .coop-player-control-grid.player-count-4 .coop-player-control-head b {
+    display: none;
+  }
+
+  .battle-panel-coop:not(.battle-panel-tablet) .coop-player-control-grid.player-count-4 .player-control-quiz {
+    min-height: 28px;
+    height: 28px;
+  }
+}
+
+@media (max-width: 720px), (max-height: 700px) {
+  .battle-panel-coop:not(.battle-panel-tablet) .coop-player-control-grid.player-count-4 .coop-player-control-card {
+    min-height: 74px;
+    padding: 4px;
+  }
+
+  .battle-panel-coop:not(.battle-panel-tablet) .coop-player-control-grid.player-count-4 .player-control-quiz {
+    min-height: 26px;
+    height: 26px;
+  }
+
+  .battle-panel-coop:not(.battle-panel-tablet) .coop-player-control-grid.player-count-4 .player-control-quiz b {
+    font-size: 10px;
+  }
+
+  .battle-panel-coop:not(.battle-panel-tablet) .coop-player-control-grid.player-count-4 .player-upgrade-grid .upgrade-button {
+    min-height: 21px;
+    height: 21px;
+  }
+
+  .battle-panel-coop:not(.battle-panel-tablet) .coop-player-control-grid.player-count-4 .player-upgrade-grid .upgrade-button small {
+    display: none;
+  }
+}
