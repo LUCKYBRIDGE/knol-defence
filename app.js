@@ -303,13 +303,14 @@ const MAX_ACTIVE_BATTLE_EFFECTS = 36;
 const EXPLOSION_EFFECT_POOL_SIZE = 48;
 const PROJECTILE_POOL_SIZE = 96;
 const ENEMY_POOL_SIZE = 72;
-const BATTLESHIP_RESPAWN_DELAY_MS = 3000;
 const BATTLESHIP_RESPAWN_INVULN_MS = 1200;
 const BATTLESHIP_DEFEAT_FLASH_MS = 1150;
 const BATTLESHIP_DEFEAT_SPAWN_RESTART_MS = 420;
 const BATTLESHIP_DEFEAT_PENALTY_MIN = 180;
 const BATTLESHIP_DEFEAT_PENALTY_SCORE_RATIO = 0.12;
 const BATTLESHIP_DEFEAT_PENALTY_WAVE_STEP = 45;
+const BATTLESHIP_REPAIR_QUIZ_REQUIRED = 3;
+const BATTLESHIP_REPAIR_QUIZ_OPEN_DELAY_MS = 1000;
 const PROJECTILE_RENDER_RADIUS_RATIO = 0.66;
 const PROJECTILE_RENDER_STROKE_WIDTH = 1.35;
 const EARLY_ATTACK_SLOW_WINDOW_SEC = 70;
@@ -429,7 +430,7 @@ let selectedPackId = 'gugudan';
 let selectedMode = 'solo';
 let selectedDisplayMode = 'auto';
 let selectedPlayers = 1;
-let selectedMinutes = 3;
+let selectedMinutes = 2;
 let setupMessageKind = '';
 let startLoading = false;
 let combatAssetsWarmed = false;
@@ -1825,6 +1826,7 @@ function createBattleState(playerIndex = 0) {
     defeatFlashUntilMs: 0,
     lastDeathPenalty: 0,
     lastDeathClearedEnemies: 0,
+    repairQuizTimerId: 0,
     activeEffectCount: 0,
     renderLoad: {
       busy: false,
@@ -1858,7 +1860,11 @@ function createBattleState(playerIndex = 0) {
       goldSpent: 0,
       respawnUntilMs: 0,
       invulnerableUntilMs: 0,
-      deathCount: 0
+      deathCount: 0,
+      repairQuizRequired: 0,
+      repairQuizAnswered: 0,
+      repairQuizPlayerAnswers: [],
+      repairQuizSharedQuestion: null
     },
     score: {
       points: 0,
@@ -1917,6 +1923,9 @@ function createQuizState(playerIndex = 0, questions = []) {
     feedback: '',
     feedbackKind: '',
     quizBurstAnswered: 0,
+    quizBurstTotal: QUIZ_BURST_QUESTION_COUNT,
+    repairQuizSingle: false,
+    completedRepairQuiz: false,
     autoAdvanceTimerId: 0
   };
 }
@@ -2117,6 +2126,26 @@ function nextQuestion(quizState = getQuizState(currentBattleIndex)) {
   return quizState.currentQuestion;
 }
 
+function cloneQuizQuestion(question) {
+  if (!question) return null;
+  return {
+    ...question,
+    choices: Array.isArray(question.choices) ? [...question.choices] : []
+  };
+}
+
+function assignQuestionToQuizState(quizState, question) {
+  if (!session || !quizState || !question) return null;
+  quizState.currentQuestion = cloneQuizQuestion(question);
+  quizState.answerLocked = false;
+  quizState.selectedChoice = '';
+  quizState.questionStartedAtMs = 0;
+  quizState.feedback = '';
+  quizState.feedbackKind = '';
+  session.currentQuestion = quizState.currentQuestion;
+  return quizState.currentQuestion;
+}
+
 function clearQuizAutoAdvance(quizState) {
   if (!quizState?.autoAdvanceTimerId) return;
   window.clearTimeout(quizState.autoAdvanceTimerId);
@@ -2127,6 +2156,9 @@ function resetQuizBurst(quizState) {
   if (!quizState) return;
   clearQuizAutoAdvance(quizState);
   quizState.quizBurstAnswered = 0;
+  quizState.quizBurstTotal = QUIZ_BURST_QUESTION_COUNT;
+  quizState.repairQuizSingle = false;
+  quizState.completedRepairQuiz = false;
   quizState.currentQuestion = null;
   quizState.answerLocked = false;
   quizState.selectedChoice = '';
@@ -2135,21 +2167,36 @@ function resetQuizBurst(quizState) {
   quizState.feedbackKind = '';
 }
 
-function startQuizBurst(quizState) {
+function startQuizBurst(quizState, options = {}) {
   if (!quizState) return null;
   clearQuizAutoAdvance(quizState);
   quizState.quizBurstAnswered = 0;
-  return nextQuestion(quizState);
+  quizState.quizBurstTotal = Math.max(1, Math.round(Number(options.total) || QUIZ_BURST_QUESTION_COUNT));
+  quizState.repairQuizSingle = Boolean(options.repairQuizSingle);
+  quizState.completedRepairQuiz = false;
+  return options.question
+    ? assignQuestionToQuizState(quizState, options.question)
+    : nextQuestion(quizState);
+}
+
+function getQuizBurstTotal(quizState) {
+  return Math.max(1, Math.round(Number(quizState?.quizBurstTotal) || QUIZ_BURST_QUESTION_COUNT));
 }
 
 function getQuizBurstProgress(quizState) {
-  const answered = clamp(Number(quizState?.quizBurstAnswered) || 0, 0, QUIZ_BURST_QUESTION_COUNT);
-  const current = clamp(answered + (quizState?.answerLocked ? 0 : 1), 1, QUIZ_BURST_QUESTION_COUNT);
-  return { answered, current, total: QUIZ_BURST_QUESTION_COUNT };
+  const total = getQuizBurstTotal(quizState);
+  const answered = clamp(Number(quizState?.quizBurstAnswered) || 0, 0, total);
+  const current = clamp(answered + (quizState?.answerLocked ? 0 : 1), 1, total);
+  return { answered, current, total };
 }
 
 function getQuizAutoProgressText(quizState) {
   const progress = getQuizBurstProgress(quizState);
+  if (quizState?.repairQuizSingle) {
+    return progress.answered >= progress.total
+      ? (isShipRepairQuizPending(session?.battle) ? '수리 답안 제출 · 다른 플레이어를 기다립니다' : '수리 완료 · 전장으로 복귀합니다')
+      : '수리 퀴즈 1문제';
+  }
   return progress.answered >= progress.total
     ? `${progress.total}문제 완료 · 전장으로 복귀합니다`
     : `${progress.answered}/${progress.total} 완료 · 다음 문제로 이동합니다`;
@@ -2169,7 +2216,7 @@ function scheduleQuizAutoProgress(battleIndex = currentBattleIndex) {
   const quizState = getQuizState(battleIndex);
   if (!quizState) return;
   clearQuizAutoAdvance(quizState);
-  const complete = quizState.quizBurstAnswered >= QUIZ_BURST_QUESTION_COUNT;
+  const complete = quizState.quizBurstAnswered >= getQuizBurstTotal(quizState);
   const delayMs = complete ? QUIZ_AUTO_CLOSE_DELAY_MS : QUIZ_AUTO_NEXT_DELAY_MS;
   quizState.autoAdvanceTimerId = window.setTimeout(() => {
     quizState.autoAdvanceTimerId = 0;
@@ -2181,7 +2228,7 @@ function scheduleQuizAutoProgress(battleIndex = currentBattleIndex) {
     setBattleContext(battleIndex);
     const nextQuizState = getQuizState(battleIndex);
     if (!nextQuizState?.quizOpen) return;
-    if (nextQuizState.quizBurstAnswered >= QUIZ_BURST_QUESTION_COUNT) {
+    if (nextQuizState.quizBurstAnswered >= getQuizBurstTotal(nextQuizState)) {
       closeQuizModal(battleIndex, { completedBurst: true });
       return;
     }
@@ -2996,20 +3043,35 @@ function advanceQuestionAfterAnswer(battleIndex = currentBattleIndex) {
 function openQuizModal(battleIndex = currentBattleIndex) {
   if (!session || session.endedAt) return;
   setBattleContext(battleIndex);
+  const battle = session.battle;
   session.activePlayerIndex = battleIndex;
   if (isSharedBattleSession()) {
     const quizState = getQuizState(battleIndex);
     if (!quizState) return;
+    const repairQuizOpen = isShipRepairQuizPending(battle);
+    const sharedRepairQuestion = repairQuizOpen ? ensureSharedRepairQuestion(battle) : null;
     if (!quizState.quizOpen) {
-      startQuizBurst(quizState);
+      startQuizBurst(quizState, {
+        total: repairQuizOpen ? 1 : QUIZ_BURST_QUESTION_COUNT,
+        repairQuizSingle: repairQuizOpen,
+        question: sharedRepairQuestion
+      });
     } else if (!quizState.currentQuestion) {
-      nextQuestion(quizState);
+      quizState.quizBurstTotal = repairQuizOpen ? 1 : QUIZ_BURST_QUESTION_COUNT;
+      quizState.repairQuizSingle = repairQuizOpen;
+      if (sharedRepairQuestion) assignQuestionToQuizState(quizState, sharedRepairQuestion);
+      else nextQuestion(quizState);
     }
     quizState.quizOpen = true;
     updateSharedBattleQuizFlag();
     renderCoopQuizOverlay();
     const openCount = session.playerQuizStates.filter((item) => item.quizOpen).length;
-    setBattleStatus(`${openCount}명 퀴즈 풀이 중 · 팀 전장 계속 진행`, '');
+    setBattleStatus(
+      repairQuizOpen
+        ? `${getShipRepairStatusText(battle)} · 퀴즈 풀이 중`
+        : `${openCount}명 퀴즈 풀이 중 · 팀 전장 계속 진행`,
+      repairQuizOpen ? 'danger' : ''
+    );
     refreshBattleHud(battleIndex);
     return;
   }
@@ -3021,7 +3083,12 @@ function openQuizModal(battleIndex = currentBattleIndex) {
   }
   quizState.quizOpen = true;
   renderQuestion(battleIndex);
-  setBattleStatus('퀴즈 풀이 중 · 전장 속도 감소', '');
+  setBattleStatus(
+    isShipRepairQuizPending(battle)
+      ? `${getShipRepairStatusText(battle)} · 퀴즈 풀이 중`
+      : '퀴즈 풀이 중 · 전장 속도 감소',
+    isShipRepairQuizPending(battle) ? 'danger' : ''
+  );
   refreshBattleHud(battleIndex);
 }
 
@@ -3034,6 +3101,7 @@ function closeQuizModal(battleIndex = currentBattleIndex, options = {}) {
   setBattleContext(battleIndex);
   const quizState = getQuizState(battleIndex);
   const completedBurst = Boolean(options.completedBurst);
+  const completedRepairQuiz = Boolean(quizState?.completedRepairQuiz);
   if (quizState) {
     quizState.quizOpen = false;
     resetQuizBurst(quizState);
@@ -3042,9 +3110,12 @@ function closeQuizModal(battleIndex = currentBattleIndex, options = {}) {
     updateSharedBattleQuizFlag();
     renderCoopQuizOverlay();
     const openCount = session.playerQuizStates.filter((item) => item.quizOpen).length;
+    const repairPending = isShipRepairQuizPending(session.battle);
     setBattleStatus(
-      openCount > 0 ? `${openCount}명 퀴즈 풀이 중 · 강화/회복 가능` : (completedBurst ? '3문제 완료 · 전장 복귀' : '전장 진행 중'),
-      completedBurst ? 'success' : ''
+      repairPending
+        ? getShipRepairStatusText(session.battle)
+        : (completedRepairQuiz ? '수리 퀴즈 완료 · 전장 복귀' : (openCount > 0 ? `${openCount}명 퀴즈 풀이 중 · 강화/회복 가능` : (completedBurst ? `${QUIZ_BURST_QUESTION_COUNT}문제 완료 · 전장 복귀` : '전장 진행 중'))),
+      repairPending ? 'danger' : ((completedRepairQuiz || completedBurst) ? 'success' : '')
     );
     refreshBattleHud(battleIndex);
     return;
@@ -3056,7 +3127,12 @@ function closeQuizModal(battleIndex = currentBattleIndex, options = {}) {
       layer.innerHTML = '';
     }
   }
-  setBattleStatus(completedBurst ? '3문제 완료 · 전장 복귀' : '전장 진행 중', completedBurst ? 'success' : '');
+  setBattleStatus(
+    isShipRepairQuizPending(session.battle)
+      ? getShipRepairStatusText(session.battle)
+      : (completedRepairQuiz ? '수리 퀴즈 완료 · 전장 복귀' : (completedBurst ? `${QUIZ_BURST_QUESTION_COUNT}문제 완료 · 전장 복귀` : '전장 진행 중')),
+    isShipRepairQuizPending(session.battle) ? 'danger' : ((completedRepairQuiz || completedBurst) ? 'success' : '')
+  );
   refreshBattleHud(battleIndex);
 }
 
@@ -3066,7 +3142,7 @@ function showNextQuestionInModal(battleIndex = currentBattleIndex) {
   const quizState = getQuizState(battleIndex);
   if (!quizState?.answerLocked) return;
   clearQuizAutoAdvance(quizState);
-  if (quizState.quizBurstAnswered >= QUIZ_BURST_QUESTION_COUNT) {
+  if (quizState.quizBurstAnswered >= getQuizBurstTotal(quizState)) {
     closeQuizModal(battleIndex, { completedBurst: true });
     return;
   }
@@ -3461,9 +3537,12 @@ function submitAnswer(choice, battleIndex = currentBattleIndex) {
     quizState.feedbackKind = 'wrong';
   }
   quizState.quizBurstAnswered = Math.min(
-    QUIZ_BURST_QUESTION_COUNT,
+    getQuizBurstTotal(quizState),
     (Number(quizState.quizBurstAnswered) || 0) + 1
   );
+  const repairWasPending = isShipRepairQuizPending(battle);
+  const repairAdvanced = recordShipRepairQuizAnswer(battle, battleIndex);
+  quizState.completedRepairQuiz = Boolean(repairWasPending && repairAdvanced && !isShipRepairQuizPending(battle));
 
   const root = isSharedBattleSession()
     ? (
@@ -4365,8 +4444,38 @@ function triggerHullShockwave(touchEnemy, touchDamage) {
   }
 }
 
+function getShipRepairQuizRequired(battle = session?.battle) {
+  return Math.max(0, Math.round(Number(battle?.ship?.repairQuizRequired) || 0));
+}
+
+function getShipRepairQuizAnswered(battle = session?.battle) {
+  return Math.max(0, Math.round(Number(battle?.ship?.repairQuizAnswered) || 0));
+}
+
+function getShipRepairQuizRemaining(battle = session?.battle) {
+  return Math.max(0, getShipRepairQuizRequired(battle) - getShipRepairQuizAnswered(battle));
+}
+
+function isShipRepairQuizPending(battle = session?.battle) {
+  return getShipRepairQuizRemaining(battle) > 0;
+}
+
+function getShipRepairStatusText(battle = session?.battle) {
+  const required = getShipRepairQuizRequired(battle) || BATTLESHIP_REPAIR_QUIZ_REQUIRED;
+  const answered = clamp(getShipRepairQuizAnswered(battle), 0, required);
+  const remaining = Math.max(0, required - answered);
+  const sharedRepair = Boolean(session?.sharedBattle && battle === session.battles?.[0]);
+  return remaining > 0
+    ? `거북선 수리 퀴즈 ${answered}/${required}${sharedRepair ? ' · 모두 1문제씩' : ` · ${remaining}문제 남음`}`
+    : '수리 퀴즈 완료 · 거북선 재출항';
+}
+
 function isShipRespawning(nowMs = performance.now()) {
-  return Boolean(session?.battle?.ship?.respawnUntilMs) && Number(session.battle.ship.respawnUntilMs) > Number(nowMs);
+  const battle = session?.battle;
+  return Boolean(
+    isShipRepairQuizPending(battle)
+      || (battle?.ship?.respawnUntilMs && Number(battle.ship.respawnUntilMs) > Number(nowMs))
+  );
 }
 
 function isShipInvulnerable(nowMs = performance.now()) {
@@ -4418,34 +4527,140 @@ function applyShipDeathScorePenalty(battle = session?.battle) {
   return penalty;
 }
 
+function clearRepairQuizTimer(battle = session?.battle) {
+  if (!battle?.repairQuizTimerId) return;
+  window.clearTimeout(battle.repairQuizTimerId);
+  battle.repairQuizTimerId = 0;
+}
+
+function getRepairQuizPlayerIndex(battle = session?.battle) {
+  if (!session) return 0;
+  if (isSharedBattleSession()) return getSafePlayerIndex(session.activePlayerIndex) || 0;
+  return getSafePlayerIndex(battle?.playerIndex) || 0;
+}
+
+function ensureSharedRepairQuestion(battle = session?.battle) {
+  if (!session || !battle) return null;
+  const ship = battle.ship;
+  if (ship.repairQuizSharedQuestion) return ship.repairQuizSharedQuestion;
+  if (!Array.isArray(battle.questionQueue)) {
+    battle.questionQueue = createQuestionQueue(session.questions);
+  }
+  if (!battle.questionQueue.length) {
+    battle.questionQueue = createQuestionQueue(session.questions);
+  }
+  const base = battle.questionQueue.shift();
+  if (!base) return null;
+  ship.repairQuizSharedQuestion = {
+    ...base,
+    choices: shuffle(Array.isArray(base.choices) ? base.choices : [])
+  };
+  return ship.repairQuizSharedQuestion;
+}
+
+function scheduleRepairQuizOpen(battle = session?.battle) {
+  if (!session || !battle) return;
+  clearRepairQuizTimer(battle);
+  battle.repairQuizTimerId = window.setTimeout(() => {
+    battle.repairQuizTimerId = 0;
+    if (!session || session.endedAt || !session.battles.includes(battle)) return;
+    if (!isShipRepairQuizPending(battle)) return;
+    if (isSharedBattleSession()) {
+      ensureSharedRepairQuestion(battle);
+      session.players.forEach((_, playerIndex) => {
+        openQuizModal(playerIndex);
+      });
+      return;
+    }
+    const playerIndex = getRepairQuizPlayerIndex(battle);
+    openQuizModal(playerIndex);
+  }, BATTLESHIP_REPAIR_QUIZ_OPEN_DELAY_MS);
+}
+
+function restoreShipAfterRepair(nowMs = performance.now(), battle = session?.battle) {
+  if (!battle) return;
+  const ship = battle.ship;
+  clearRepairQuizTimer(battle);
+  ship.respawnUntilMs = 0;
+  ship.repairQuizRequired = 0;
+  ship.repairQuizAnswered = 0;
+  ship.repairQuizPlayerAnswers = [];
+  ship.repairQuizSharedQuestion = null;
+  ship.invulnerableUntilMs = nowMs + BATTLESHIP_RESPAWN_INVULN_MS;
+  ship.hp = ship.maxHp;
+  battle.nextShotMs = battle.worldElapsedMs + 300;
+  battle.nextSpawnMs = BATTLESHIP_DEFEAT_SPAWN_RESTART_MS;
+  setBattleStatus('수리 퀴즈 완료 · 거북선 재출항', 'success');
+}
+
+function normalizeRepairQuizPlayerAnswers(battle = session?.battle) {
+  if (!battle || !session?.sharedBattle) return [];
+  const playerCount = session.players.length;
+  const answers = Array.isArray(battle.ship.repairQuizPlayerAnswers)
+    ? battle.ship.repairQuizPlayerAnswers.slice(0, playerCount)
+    : [];
+  while (answers.length < playerCount) answers.push(false);
+  battle.ship.repairQuizPlayerAnswers = answers.map(Boolean);
+  return battle.ship.repairQuizPlayerAnswers;
+}
+
+function recordShipRepairQuizAnswer(battle = session?.battle, playerIndex = currentBattleIndex) {
+  if (!battle || !isShipRepairQuizPending(battle)) return false;
+  const ship = battle.ship;
+  const required = getShipRepairQuizRequired(battle);
+  if (isSharedBattleSession()) {
+    const safeIndex = getSafePlayerIndex(playerIndex) || 0;
+    const answers = normalizeRepairQuizPlayerAnswers(battle);
+    if (answers[safeIndex]) return true;
+    answers[safeIndex] = true;
+    ship.repairQuizAnswered = Math.min(required, answers.filter(Boolean).length);
+  } else {
+    ship.repairQuizAnswered = Math.min(required, getShipRepairQuizAnswered(battle) + 1);
+  }
+  battle.hudDirty = true;
+  if (isShipRepairQuizPending(battle)) {
+    setBattleStatus(getShipRepairStatusText(battle), 'danger');
+    return true;
+  }
+  restoreShipAfterRepair(performance.now(), battle);
+  return true;
+}
+
 function triggerShipRespawn(nowMs = performance.now()) {
   const battle = session.battle;
   const ship = battle.ship;
   const clearedEnemies = clearBattlefieldForRespawn(battle);
   const penalty = applyShipDeathScorePenalty(battle);
+  const repairQuizRequired = isSharedBattleSession()
+    ? Math.max(1, session.players.length)
+    : BATTLESHIP_REPAIR_QUIZ_REQUIRED;
   ship.hp = 0;
   ship.deathCount += 1;
-  ship.respawnUntilMs = nowMs + BATTLESHIP_RESPAWN_DELAY_MS;
+  ship.respawnUntilMs = 0;
   ship.invulnerableUntilMs = 0;
-  battle.nextSpawnMs = BATTLESHIP_RESPAWN_DELAY_MS + BATTLESHIP_DEFEAT_SPAWN_RESTART_MS;
-  battle.nextShotMs = battle.worldElapsedMs + BATTLESHIP_RESPAWN_DELAY_MS;
+  ship.repairQuizRequired = repairQuizRequired;
+  ship.repairQuizAnswered = 0;
+  ship.repairQuizPlayerAnswers = isSharedBattleSession()
+    ? Array.from({ length: session.players.length }, () => false)
+    : [];
+  ship.repairQuizSharedQuestion = null;
+  battle.nextSpawnMs = BATTLESHIP_DEFEAT_SPAWN_RESTART_MS;
+  battle.nextShotMs = Number.POSITIVE_INFINITY;
   battle.defeatFlashUntilMs = nowMs + BATTLESHIP_DEFEAT_FLASH_MS;
   battle.lastDeathPenalty = penalty;
   battle.lastDeathClearedEnemies = clearedEnemies;
   const penaltyText = penalty > 0 ? ` · 점수 -${penalty.toLocaleString('ko-KR')}` : '';
   const clearText = clearedEnemies > 0 ? ` · 적 ${clearedEnemies} 싹쓸이` : ' · 전장 정리';
-  setBattleStatus(`거북선 격침${penaltyText}${clearText} · ${Math.ceil(BATTLESHIP_RESPAWN_DELAY_MS / 1000)}초 재정비`, 'danger');
+  setBattleStatus(`거북선 격침${penaltyText}${clearText} · 1초 뒤 수리 퀴즈`, 'danger');
+  scheduleRepairQuizOpen(battle);
 }
 
 function completeShipRespawn(nowMs = performance.now()) {
-  const ship = session.battle.ship;
+  const battle = session.battle;
+  if (isShipRepairQuizPending(battle)) return;
+  const ship = battle.ship;
   if (!ship.respawnUntilMs || ship.respawnUntilMs > nowMs) return;
-  ship.respawnUntilMs = 0;
-  ship.invulnerableUntilMs = nowMs + BATTLESHIP_RESPAWN_INVULN_MS;
-  ship.hp = ship.maxHp;
-  session.battle.nextShotMs = session.battle.worldElapsedMs + 300;
-  session.battle.nextSpawnMs = BATTLESHIP_DEFEAT_SPAWN_RESTART_MS;
-  setBattleStatus('재정비 완료 · 다시 전투 참여', 'success');
+  restoreShipAfterRepair(nowMs, battle);
 }
 
 function updateBattle(dtSec, nowMs) {
@@ -4456,9 +4671,10 @@ function updateBattle(dtSec, nowMs) {
   }
   const battle = session.battle;
   const ship = battle.ship;
-  const worldDtSec = battle.quizOpen ? dtSec * BATTLE_QUIZ_WORLD_SLOW_RATIO : dtSec;
 
   completeShipRespawn(nowMs);
+  const recovering = isShipRespawning(nowMs);
+  const worldDtSec = recovering ? 0 : (battle.quizOpen ? dtSec * BATTLE_QUIZ_WORLD_SLOW_RATIO : dtSec);
   battle.worldElapsedMs += worldDtSec * 1000;
   battle.waves.elapsedSec += worldDtSec;
   battle.waves.level = 1 + Math.floor(battle.waves.elapsedSec / 20);
@@ -5576,11 +5792,12 @@ function drawBattleEffects(ctx, effects, nowMs, width, height) {
 function drawDefeatFlashOverlay(ctx, battle, nowMs, width, height) {
   if (!battle) return;
   const flashRemainingMs = Math.max(0, Number(battle.defeatFlashUntilMs || 0) - nowMs);
-  const respawnRemainingMs = Math.max(0, Number(battle.ship?.respawnUntilMs || 0) - nowMs);
-  if (flashRemainingMs <= 0 && respawnRemainingMs <= 0) return;
+  const repairPending = isShipRepairQuizPending(battle);
+  const respawnRemainingMs = repairPending ? 0 : Math.max(0, Number(battle.ship?.respawnUntilMs || 0) - nowMs);
+  if (flashRemainingMs <= 0 && respawnRemainingMs <= 0 && !repairPending) return;
   const flashRatio = clamp(flashRemainingMs / BATTLESHIP_DEFEAT_FLASH_MS, 0, 1);
   const pulse = 0.5 + Math.sin(nowMs * 0.018) * 0.5;
-  const overlayAlpha = clamp(0.06 + flashRatio * 0.42 + (respawnRemainingMs > 0 ? pulse * 0.04 : 0), 0.06, 0.52);
+  const overlayAlpha = clamp(0.06 + flashRatio * 0.42 + (repairPending || respawnRemainingMs > 0 ? pulse * 0.04 : 0), 0.06, 0.52);
   ctx.save();
   ctx.fillStyle = `rgba(185, 28, 28, ${overlayAlpha})`;
   ctx.fillRect(0, 0, width, height);
@@ -5599,7 +5816,6 @@ function drawDefeatFlashOverlay(ctx, battle, nowMs, width, height) {
   ctx.fill();
   ctx.stroke();
 
-  const respawnSec = Math.max(0, Math.ceil(respawnRemainingMs / 1000));
   const penalty = Math.max(0, Math.round(Number(battle.lastDeathPenalty) || 0));
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
@@ -5608,7 +5824,10 @@ function drawDefeatFlashOverlay(ctx, battle, nowMs, width, height) {
   ctx.fillText('거북선 격침', width / 2, panelY + panelHeight * 0.34);
   ctx.font = `800 ${Math.round(clamp(12 * visualScale, 8, 13))}px Apple SD Gothic Neo, Malgun Gothic, sans-serif`;
   const penaltyText = penalty > 0 ? `점수 -${penalty.toLocaleString('ko-KR')} · ` : '';
-  ctx.fillText(`${penaltyText}${respawnSec}초 뒤 재출항`, width / 2, panelY + panelHeight * 0.68);
+  const repairText = repairPending
+    ? `수리 퀴즈 ${getShipRepairQuizAnswered(battle)}/${getShipRepairQuizRequired(battle)}`
+    : `${Math.max(0, Math.ceil(respawnRemainingMs / 1000))}초 뒤 재출항`;
+  ctx.fillText(`${penaltyText}${repairText}`, width / 2, panelY + panelHeight * 0.68);
   ctx.restore();
 }
 
@@ -6894,6 +7113,11 @@ window.__KNOLQUIZ_TEST__ = {
       lastDeathPenalty: battle.lastDeathPenalty,
       lastDeathClearedEnemies: battle.lastDeathClearedEnemies,
       respawning: isShipRespawning(),
+      repairQuiz: {
+        required: getShipRepairQuizRequired(battle),
+        answered: getShipRepairQuizAnswered(battle),
+        remaining: getShipRepairQuizRemaining(battle)
+      },
       performanceMode: battle.performanceMode,
       performanceLagScore: Math.round((Number(battle.performanceLagScore) || 0) * 10) / 10,
       ship: {
