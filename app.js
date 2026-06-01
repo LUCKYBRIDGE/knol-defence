@@ -250,9 +250,9 @@ const SHIP_SPRITE_CROP = Object.freeze({ x: 354, y: 43, width: 316, height: 482 
 const ELITE_UNLOCK_TIME_SEC = 180;
 const ENEMY_TIER_UNLOCK_STEP_SEC = 18;
 const ELITE_TIER_UNLOCK_STEP_SEC = 24;
-const SPAWN_START_COOLDOWN_MS = 1700;
-const SPAWN_MIN_COOLDOWN_MS = 460;
-const SPAWN_DECAY_PER_SEC = 5.6;
+const SPAWN_START_COOLDOWN_MS = 1820;
+const SPAWN_MIN_COOLDOWN_MS = 520;
+const SPAWN_DECAY_PER_SEC = 5.2;
 const HP_GROWTH_STEP_SEC = 24;
 const HP_GROWTH_PER_STEP = 0.12;
 const SPEED_GROWTH_STEP_SEC = 34;
@@ -273,10 +273,10 @@ const EARLY_SOFTCAP_T2 = 14;
 const EARLY_SOFTCAP_T3 = 21;
 const BATTLE_QUIZ_WORLD_SLOW_RATIO = 0.35;
 const SHIP_BASE_MAX_HP = 300;
-const SHIP_BASE_ATTACK_POWER = 14;
-const SHIP_BASE_ATTACK_COOLDOWN_MS = 620;
-const SHIP_ATTACK_SPEED_LEVEL_STEP = 0.085;
-const SHIP_ATTACK_POWER_LEVEL_STEP = 0.13;
+const SHIP_BASE_ATTACK_POWER = 12;
+const SHIP_BASE_ATTACK_COOLDOWN_MS = 700;
+const SHIP_ATTACK_SPEED_LEVEL_STEP = 0.075;
+const SHIP_ATTACK_POWER_LEVEL_STEP = 0.11;
 const SHIP_HULL_HP_STEP = 40;
 const SHIP_HULL_DAMAGE_REDUCTION_STEP = 0.045;
 const SHIP_DAMAGE_REDUCTION_MAX = 0.32;
@@ -321,8 +321,9 @@ const QUIZ_BURST_QUESTION_COUNT = 3;
 const QUIZ_AUTO_NEXT_DELAY_MS = 760;
 const QUIZ_AUTO_CLOSE_DELAY_MS = 920;
 const HUD_REFRESH_INTERVAL_MS = 140;
+const HUD_IDLE_REFRESH_INTERVAL_MS = 520;
 const CANVAS_SYNC_INTERVAL_MS = 220;
-const CANVAS_MAX_BACKING_PIXELS = 1900000;
+const CANVAS_MAX_BACKING_PIXELS = 2600000;
 const MIN_START_LOADING_MS = 850;
 const SPAWN_PLAN_BUFFER = 96;
 const ENEMY_SPATIAL_CELL_SIZE = 96;
@@ -433,20 +434,20 @@ let battleViews = [];
 let currentBattleIndex = 0;
 let battleAnimationId = 0;
 let lastReportFocusElement = null;
-let lastPointerActionButton = null;
-let lastPointerActionAtMs = 0;
+const recentPointerControls = new WeakMap();
 let quizTextFitFrameId = 0;
 const quizTextFitRoots = new Set();
 
 const BATTLE_TEXT_REFS = [
   'player-summary',
   'ship-hp',
-  'wave-level',
   'score-points',
   'kill-combo',
   'resource-score',
   'attack-stat'
 ];
+
+const POINTER_CLICK_SUPPRESS_MS = 850;
 
 const ENEMY_OUTLINE_DIRECTIONS = Object.freeze([
   [-1, 0],
@@ -1172,6 +1173,7 @@ function showScreen(name) {
   elements.setupScreen.classList.toggle('is-hidden', name !== 'setup');
   elements.playScreen.classList.toggle('is-hidden', name !== 'play');
   elements.resultScreen.classList.toggle('is-hidden', name !== 'result');
+  if (elements.displayModeToggle) elements.displayModeToggle.disabled = name !== 'setup';
 }
 
 function getPackLabel(packId) {
@@ -1256,6 +1258,7 @@ function syncTabletFaceLayoutBasis() {
 }
 
 function selectNextDisplayMode() {
+  if (session && !session.endedAt) return;
   const index = DISPLAY_MODES.findIndex((mode) => mode.id === selectedDisplayMode);
   selectedDisplayMode = DISPLAY_MODES[(index + 1 + DISPLAY_MODES.length) % DISPLAY_MODES.length]?.id || 'auto';
   updateSetupSummary();
@@ -1280,7 +1283,7 @@ function getPlayerLimitInfo(resolvedMode = getResolvedDisplayMode()) {
   const resolutionLimit = getResolutionPlayerLimit();
   const recommendedLimit = Math.min(displayLimit, resolutionLimit);
   const reason = recommendedLimit < 4
-    ? `현재 화면에서는 ${recommendedLimit}명까지 권장합니다. 더 많은 인원은 비추천이지만 시작할 수 있습니다.`
+    ? `현재 화면에서는 ${recommendedLimit}명까지 권장합니다. 더 많은 인원은 기기성능과 화면크기가 충분할 때 원활합니다.`
     : '';
   return { limit: 4, recommendedLimit, displayLimit, resolutionLimit, reason };
 }
@@ -1432,7 +1435,7 @@ function updateSetupSummary(options = {}) {
     const players = Number(button.dataset.players);
     const notRecommended = players > limitInfo.recommendedLimit;
     const label = getPlayerCountLabel(players, resolvedMode);
-    button.innerHTML = `${escapeHtml(label)}${notRecommended ? ' <small class="option-warning">비추천</small>' : ''}`;
+    button.innerHTML = `${escapeHtml(label)}${notRecommended ? ' <small class="option-warning">기기성능, 화면크기 필요</small>' : ''}`;
     button.disabled = false;
     button.title = notRecommended ? limitInfo.reason : '';
     button.classList.remove('is-disabled');
@@ -2354,7 +2357,6 @@ function renderBattlePanel(player, index) {
             <span data-ref="ship-hp">300/300</span>
             <div class="hud-hp-bar" aria-hidden="true"><i data-ref="ship-hp-fill"></i></div>
           </div>
-          <div class="battle-stat"><b>Wave/전장</b><span data-ref="wave-level">Lv.1</span></div>
           <div class="battle-stat score-stat"><b>점수</b><span data-ref="score-points">0</span></div>
           <div class="battle-stat"><b>격퇴/콤보</b><span data-ref="kill-combo">0 / x0</span></div>
           <div class="battle-stat"><b>GOLD</b><span data-ref="resource-score">0</span></div>
@@ -2403,7 +2405,6 @@ function renderTabletTeamHud() {
         <span data-ref="ship-hp">300/300</span>
         <div class="hud-hp-bar" aria-hidden="true"><i data-ref="ship-hp-fill"></i></div>
       </div>
-      <div class="battle-stat"><b>Wave/전장</b><span data-ref="wave-level">Lv.1</span></div>
       <div class="battle-stat score-stat"><b>팀 점수</b><span data-ref="score-points">0</span></div>
       <div class="battle-stat"><b>격퇴/콤보</b><span data-ref="kill-combo">0 / x0</span></div>
       <div class="battle-stat"><b>공유 GOLD</b><span data-ref="resource-score">0</span></div>
@@ -2482,7 +2483,6 @@ function renderCoopBattlePanel() {
             <span data-ref="ship-hp">300/300</span>
             <div class="hud-hp-bar" aria-hidden="true"><i data-ref="ship-hp-fill"></i></div>
           </div>
-          <div class="battle-stat"><b>Wave/전장</b><span data-ref="wave-level">Lv.1</span></div>
           <div class="battle-stat score-stat"><b>팀 점수</b><span data-ref="score-points">0</span></div>
           <div class="battle-stat"><b>격퇴/콤보</b><span data-ref="kill-combo">0 / x0</span></div>
           <div class="battle-stat"><b>공유 GOLD</b><span data-ref="resource-score">0</span></div>
@@ -2599,11 +2599,10 @@ function refreshBattleHud(index = currentBattleIndex, options = {}) {
   setBattleContext(index);
   const battle = session.battle;
   const nowMs = Number(options.nowMs) || performance.now();
-  if (
-    options.passive
-    && nowMs - (Number(battle.lastHudRefreshMs) || 0) < HUD_REFRESH_INTERVAL_MS
-  ) {
-    return;
+  if (options.passive) {
+    const elapsedSinceHudRefresh = nowMs - (Number(battle.lastHudRefreshMs) || 0);
+    const refreshInterval = battle.hudDirty ? HUD_REFRESH_INTERVAL_MS : HUD_IDLE_REFRESH_INTERVAL_MS;
+    if (elapsedSinceHudRefresh < refreshInterval) return;
   }
   battle.lastHudRefreshMs = nowMs;
   battle.hudDirty = false;
@@ -2624,7 +2623,6 @@ function refreshBattleHud(index = currentBattleIndex, options = {}) {
   );
 
   setText('ship-hp', `${Math.max(0, Math.round(ship.hp))}/${ship.maxHp}`);
-  setText('wave-level', `Lv.${battle.waves.level} · ${battle.flow.label}`);
   setText('score-points', battle.score.points.toLocaleString('ko-KR'));
   setText('kill-combo', `${battle.score.kills} / x${battle.score.combo}`);
   setText('resource-score', battle.score.gold.toLocaleString('ko-KR'));
@@ -2674,8 +2672,9 @@ function refreshBattleHud(index = currentBattleIndex, options = {}) {
     });
   }
 
-  const healCost = getHealCost();
-  const upgradeRenderSignature = [
+  const shouldRefreshUpgrades = options.includeUpgrades !== false && !options.passive;
+  const healCost = shouldRefreshUpgrades ? getHealCost() : 0;
+  const upgradeRenderSignature = shouldRefreshUpgrades ? [
     battle.score.gold,
     Math.round(ship.hp),
     ship.maxHp,
@@ -2687,8 +2686,8 @@ function refreshBattleHud(index = currentBattleIndex, options = {}) {
     ship.penetrationLevel,
     ship.explosionLevel,
     ship.hullLevel
-  ].join('|');
-  if (upgradeRenderSignature !== battle.lastUpgradeRenderSignature) {
+  ].join('|') : battle.lastUpgradeRenderSignature;
+  if (shouldRefreshUpgrades && upgradeRenderSignature !== battle.lastUpgradeRenderSignature) {
     battle.lastUpgradeRenderSignature = upgradeRenderSignature;
     const speedCost = getSpeedUpgradeCost();
     const powerCost = getPowerUpgradeCost();
@@ -2769,6 +2768,17 @@ function refreshAllBattleHuds() {
   setBattleContext(previousIndex);
 }
 
+function markPointerControlHandled(control, nowMs = performance.now()) {
+  if (!control) return;
+  recentPointerControls.set(control, nowMs);
+}
+
+function wasPointerControlHandledRecently(control, nowMs = performance.now()) {
+  if (!control) return false;
+  const handledAtMs = recentPointerControls.get(control) || 0;
+  return nowMs - handledAtMs < POINTER_CLICK_SUPPRESS_MS;
+}
+
 function runBattleActionFromButton(button) {
   if (!button || !session) return false;
   const action = button.dataset.action;
@@ -2803,6 +2813,7 @@ function runBattleActionFromButton(button) {
 function handleBattleAction(event) {
   const quizControl = event.target.closest('[data-choice], [data-quiz-close]');
   if (quizControl && session) {
+    if (wasPointerControlHandledRecently(quizControl)) return;
     event.preventDefault();
     event.stopPropagation();
     const battleIndex = getQuizOwnerIndexFromElement(quizControl);
@@ -2816,7 +2827,7 @@ function handleBattleAction(event) {
 
   const button = event.target.closest('[data-action]');
   if (!button || !session) return;
-  if (button === lastPointerActionButton && performance.now() - lastPointerActionAtMs < 650) return;
+  if (wasPointerControlHandledRecently(button)) return;
   runBattleActionFromButton(button);
 }
 
@@ -2826,6 +2837,7 @@ function handleBattlePointerDown(event) {
     if (event.pointerType === 'mouse' && event.button !== 0) return;
     event.preventDefault();
     event.stopPropagation();
+    markPointerControlHandled(quizControl);
     const battleIndex = getQuizOwnerIndexFromElement(quizControl);
     if (quizControl.matches('[data-choice]')) {
       submitAnswer(quizControl.dataset.choice || '', battleIndex);
@@ -2840,9 +2852,8 @@ function handleBattlePointerDown(event) {
   if (event.pointerType === 'mouse' && event.button !== 0) return;
   event.preventDefault();
   event.stopPropagation();
+  markPointerControlHandled(button);
   runBattleActionFromButton(button);
-  lastPointerActionButton = button;
-  lastPointerActionAtMs = performance.now();
 }
 
 function runShipUpgrade(action) {
@@ -3169,6 +3180,67 @@ function scheduleQuizTextFit(root = elements.gameStage) {
   });
 }
 
+function getQuizSurfaceSignature(playerIndex) {
+  const quizState = getQuizState(playerIndex);
+  const question = quizState?.currentQuestion;
+  if (!quizState?.quizOpen || !question) return 'idle';
+  return [
+    'open',
+    playerIndex,
+    question.id || question.key || question.text || question.prompt || '',
+    question.prompt || '',
+    question.image || '',
+    (question.choices || []).map(String).join('\u001f'),
+    String(question.answer),
+    quizState.answerLocked ? 1 : 0,
+    quizState.selectedChoice || '',
+    quizState.feedback || '',
+    quizState.feedbackKind || '',
+    Number(quizState.quizBurstAnswered) || 0
+  ].join('\u001e');
+}
+
+function renderQuizSurfaceInto(container, playerIndex, isOpen) {
+  if (!container) return;
+  const quizState = getQuizState(playerIndex);
+  if (!isOpen || !quizState?.currentQuestion) {
+    if (container.dataset.renderSignature !== 'idle') {
+      container.innerHTML = '';
+      container.dataset.renderSignature = 'idle';
+    }
+    return;
+  }
+  if (!quizState.answerLocked && !quizState.questionStartedAtMs) {
+    quizState.questionStartedAtMs = Date.now();
+  }
+  const signature = getQuizSurfaceSignature(playerIndex);
+  if (container.dataset.renderSignature === signature) return;
+  container.innerHTML = buildQuizCardHtml(playerIndex);
+  container.dataset.renderSignature = signature;
+  scheduleQuizTextFit(container);
+}
+
+function ensureCoopQuizSplitGrid(overlay) {
+  const count = session?.players?.length || 1;
+  const expectedClass = `coop-quiz-split-grid player-count-${count}`;
+  const currentGrid = overlay.firstElementChild;
+  if (
+    currentGrid
+    && currentGrid.className === expectedClass
+    && currentGrid.children.length === count
+  ) {
+    return currentGrid;
+  }
+  overlay.innerHTML = `
+    <div class="${expectedClass}">
+      ${session.players.map((player, index) => `
+        <section class="coop-quiz-split-slot is-idle" data-player-index="${index}" data-render-signature="idle" aria-label="${escapeHtml(player.name)} 퀴즈 화면"></section>
+      `).join('')}
+    </div>
+  `;
+  return overlay.firstElementChild;
+}
+
 function renderCoopQuizOverlay() {
   if (!session || !isSharedBattleSession()) return;
   const root = getBattleRoot(0);
@@ -3178,7 +3250,7 @@ function renderCoopQuizOverlay() {
       const quizState = getQuizState(playerIndex);
       const isOpen = Boolean(quizState?.quizOpen);
       layer.classList.toggle('is-hidden', !isOpen);
-      layer.innerHTML = isOpen ? buildQuizCardHtml(playerIndex) : '';
+      renderQuizSurfaceInto(layer, playerIndex, isOpen);
       $(`.tablet-player-zone[data-player-index="${playerIndex}"]`, root)?.classList.toggle('is-quiz-open', isOpen);
     });
     scheduleQuizTextFit(root);
@@ -3196,19 +3268,20 @@ function renderCoopQuizOverlay() {
     overlay.innerHTML = '';
     return;
   }
-  overlay.innerHTML = `
-    <div class="coop-quiz-split-grid player-count-${session.players.length}">
-      ${session.players.map((player, index) => {
-        const quizState = getQuizState(index);
-        const isOpen = Boolean(quizState?.quizOpen);
-        return `
-          <section class="coop-quiz-split-slot ${isOpen ? 'is-active' : 'is-idle'}" data-player-index="${index}" aria-label="${escapeHtml(player.name)} 퀴즈 화면">
-            ${isOpen ? buildQuizCardHtml(index) : ''}
-          </section>
-        `;
-      }).join('')}
-    </div>
-  `;
+  const grid = ensureCoopQuizSplitGrid(overlay);
+  session.players.forEach((player, index) => {
+    const quizState = getQuizState(index);
+    const isOpen = Boolean(quizState?.quizOpen);
+    const slot = grid.children[index];
+    if (!slot) return;
+    slot.classList.toggle('is-active', isOpen);
+    slot.classList.toggle('is-idle', !isOpen);
+    const label = `${player.name} 퀴즈 화면`;
+    if (slot.getAttribute('aria-label') !== label) {
+      slot.setAttribute('aria-label', label);
+    }
+    renderQuizSurfaceInto(slot, index, isOpen);
+  });
   scheduleQuizTextFit(overlay);
 }
 
@@ -3682,6 +3755,12 @@ function createPooledEnemy(index = 0) {
     maxHp: 0,
     touchDamage: 0,
     renderSize: 0,
+    renderMetricKey: '',
+    renderDrawScale: 1,
+    renderDrawWidth: 0,
+    renderDrawHeight: 0,
+    renderVisualRadius: 0,
+    renderCullRadius: 0,
     hasBeenVisible: false,
     moveSpeedMultiplier: 1,
     wobbleMovement: false,
@@ -3730,6 +3809,7 @@ function createPooledProjectile(index = 0) {
     vx: 0,
     vy: 0,
     radius: 0,
+    renderRadius: 0,
     damage: 0,
     remainingHits: 0,
     explosionLevel: 0,
@@ -3766,6 +3846,9 @@ function shootAt(target) {
   const explosionRadius = getShipExplosionRadius();
   const explosionDamageRatio = getShipExplosionDamageRatio();
   const angleOffsets = getProjectileAngleOffsets(count);
+  const projectileRadius = 6.5 + Math.min(2, battle.ship.attackPowerLevel * 0.18);
+  const projectileRenderRadius = getProjectileRenderRadius({ radius: projectileRadius });
+  const projectileDamage = battle.ship.attackPower;
   for (let index = 0; index < angleOffsets.length; index += 1) {
     const offset = angleOffsets[index];
     const angle = baseAngle + offset;
@@ -3778,8 +3861,9 @@ function shootAt(target) {
     projectile.y = battle.ship.y + sin * 34;
     projectile.vx = cos * 430;
     projectile.vy = sin * 430;
-    projectile.radius = 6.5 + Math.min(2, battle.ship.attackPowerLevel * 0.18);
-    projectile.damage = battle.ship.attackPower;
+    projectile.radius = projectileRadius;
+    projectile.renderRadius = projectileRenderRadius;
+    projectile.damage = projectileDamage;
     projectile.remainingHits = penetrationHits;
     projectile.explosionLevel = explosionLevel;
     projectile.explosionRadius = explosionRadius;
@@ -4110,7 +4194,7 @@ function updateExplosionEffectFrameCacheFields(effect) {
   return effect;
 }
 
-function addExplosionEffect(x, y, radius, level = 1, damage = 0) {
+function addExplosionEffect(x, y, radius, level = 1, damage = 0, startedAtMs = performance.now()) {
   const battle = session?.battle;
   if (!battle || radius <= 0) return;
   const effect = acquireExplosionEffect(battle);
@@ -4126,7 +4210,7 @@ function addExplosionEffect(x, y, radius, level = 1, damage = 0) {
   effect.radius = radius;
   effect.level = Math.max(1, Number(level) || 1);
   effect.damage = Math.max(0, Math.round(Number(damage) || 0));
-  effect.startedAtMs = performance.now();
+  effect.startedAtMs = Number(startedAtMs) || performance.now();
   effect.durationMs = SHIP_EXPLOSION_EFFECT_MS;
   effect.seed = battleRandom();
   updateExplosionEffectFrameCacheFields(effect);
@@ -4155,7 +4239,7 @@ function applyProjectileSplashDamage(enemy, sourceEnemyId, impactX, impactY, rad
   }
 }
 
-function applyProjectileExplosion(projectile, sourceEnemyId, enemyGrid = null) {
+function applyProjectileExplosion(projectile, sourceEnemyId, enemyGrid = null, nowMs = performance.now()) {
   const battle = session.battle;
   const radius = Math.max(0, Number(projectile?.explosionRadius) || 0);
   const damageRatio = clamp(Number(projectile?.explosionDamageRatio) || 0, 0, 1);
@@ -4164,7 +4248,7 @@ function applyProjectileExplosion(projectile, sourceEnemyId, enemyGrid = null) {
   const impactY = Number(projectile?.y) || 0;
   const splashDamage = Math.max(1, Math.round((Number(projectile?.damage) || 0) * damageRatio));
   const explosionLevel = Math.max(1, Number(projectile?.explosionLevel) || 1);
-  addExplosionEffect(impactX, impactY, radius, explosionLevel, splashDamage);
+  addExplosionEffect(impactX, impactY, radius, explosionLevel, splashDamage, nowMs);
   if (enemyGrid?.buckets?.size) {
     const cellSize = enemyGrid.cellSize || ENEMY_SPATIAL_CELL_SIZE;
     const safeRadius = radius + 80;
@@ -4305,7 +4389,6 @@ function updateBattle(dtSec, nowMs) {
     finishSession();
     return;
   }
-  syncCanvasSize({ nowMs });
   const battle = session.battle;
   const ship = battle.ship;
   const worldDtSec = battle.quizOpen ? dtSec * BATTLE_QUIZ_WORLD_SLOW_RATIO : dtSec;
@@ -4362,7 +4445,7 @@ function updateBattle(dtSec, nowMs) {
     if (hitEnemy) {
       addProjectileHitEnemy(projectile, hitEnemy.id);
       const killed = applyDamageToEnemy(hitEnemy, projectile.damage);
-      applyProjectileExplosion(projectile, hitEnemy.id, enemyGrid);
+      applyProjectileExplosion(projectile, hitEnemy.id, enemyGrid, nowMs);
       if (killed) {
         removeEnemyAt(-1, hitEnemy);
         addKillReward(hitEnemy);
@@ -4900,6 +4983,65 @@ function drawEnemyVariantAura(ctx, enemy, width, height, style, nowMs) {
   ctx.restore();
 }
 
+function getEnemyRenderMetrics(enemy, image, visualScale = getBattleVisualScale()) {
+  if (!enemy) {
+    return {
+      drawScale: 1,
+      drawWidth: 0,
+      drawHeight: 0,
+      visualRadius: 0,
+      cullRadius: 0
+    };
+  }
+  const safeVisualScale = Number(visualScale) || 1;
+  const naturalWidth = Number(image?.naturalWidth) || 0;
+  const naturalHeight = Number(image?.naturalHeight) || 0;
+  const key = [
+    enemy.tier || 0,
+    Math.round((Number(enemy.renderSize) || 0) * 100),
+    Math.round((Number(enemy.radius) || 0) * 100),
+    Math.round(safeVisualScale * 1000),
+    naturalWidth,
+    naturalHeight
+  ].join(':');
+  if (enemy.renderMetricKey === key) {
+    return {
+      drawScale: enemy.renderDrawScale,
+      drawWidth: enemy.renderDrawWidth,
+      drawHeight: enemy.renderDrawHeight,
+      visualRadius: enemy.renderVisualRadius,
+      cullRadius: enemy.renderCullRadius
+    };
+  }
+
+  const enemyDrawScale = clamp(safeVisualScale * 1.1, 0.55, 1);
+  const renderSize = Number(enemy.renderSize) || 0;
+  let drawWidth = renderSize * enemyDrawScale;
+  let drawHeight = drawWidth;
+  if (image?.complete && naturalWidth && naturalHeight) {
+    const scale = drawWidth / Math.max(naturalWidth, naturalHeight);
+    drawWidth = naturalWidth * scale;
+    drawHeight = naturalHeight * scale;
+  }
+  const visualRadius = Math.max(8, (Number(enemy.radius) || 0) * enemyDrawScale);
+  const cullRadius = Math.max(Number(enemy.radius) || 0, renderSize * safeVisualScale * 0.68);
+
+  enemy.renderMetricKey = key;
+  enemy.renderDrawScale = enemyDrawScale;
+  enemy.renderDrawWidth = drawWidth;
+  enemy.renderDrawHeight = drawHeight;
+  enemy.renderVisualRadius = visualRadius;
+  enemy.renderCullRadius = cullRadius;
+
+  return {
+    drawScale: enemyDrawScale,
+    drawWidth,
+    drawHeight,
+    visualRadius,
+    cullRadius
+  };
+}
+
 function getEnemyHpColor(enemy, variantStyle) {
   if (variantStyle?.hpColor) return variantStyle.hpColor;
   if (enemy.role === 'commander') return '#f59e0b';
@@ -4949,28 +5091,27 @@ function shouldDrawEnemyInfo(enemy, variantStyle, renderLoad) {
   return ENEMY_ALWAYS_INFO_ROLES.has(enemy.role);
 }
 
-function drawEnemy(ctx, enemy, nowMs, renderLoad = null, visualScale = getBattleVisualScale()) {
-  const image = enemyImages.get(enemy.tier);
+function drawEnemy(ctx, enemy, nowMs, renderLoad = null, visualScale = getBattleVisualScale(), image = null, metrics = null) {
+  image = image || enemyImages.get(enemy.tier);
   const variantStyle = getEnemyVariantVisual(enemy);
-  const enemyDrawScale = clamp(visualScale * 1.1, 0.55, 1);
-  const visualRadius = Math.max(8, enemy.radius * enemyDrawScale);
-  let drawWidth = enemy.renderSize * enemyDrawScale;
-  let drawHeight = drawWidth;
-  if (image?.complete && image.naturalWidth && image.naturalHeight) {
-    const scale = drawWidth / Math.max(image.naturalWidth, image.naturalHeight);
-    drawWidth = image.naturalWidth * scale;
-    drawHeight = image.naturalHeight * scale;
-  }
+  metrics = metrics || getEnemyRenderMetrics(enemy, image, visualScale);
+  const enemyDrawScale = metrics.drawScale;
+  const visualRadius = metrics.visualRadius;
+  const drawWidth = metrics.drawWidth;
+  const drawHeight = metrics.drawHeight;
   const drawX = enemy.x - drawWidth / 2;
   const drawY = enemy.y - drawHeight / 2;
-  if ((!renderLoad?.veryBusy && !renderLoad?.performanceMode) || enemy.elite) {
+  if (!renderLoad?.veryBusy && (!renderLoad?.performanceMode || enemy.elite || enemy.hardened)) {
     drawEnemyVariantAura(ctx, enemy, drawWidth, drawHeight, variantStyle, nowMs);
   }
 
   ctx.save();
   ctx.shadowColor = 'rgba(9, 24, 56, 0.24)';
-  ctx.shadowBlur = (renderLoad?.veryBusy || renderLoad?.performanceMode ? 0 : (variantStyle ? 18 : 10)) * enemyDrawScale;
-  ctx.shadowOffsetY = renderLoad?.veryBusy || renderLoad?.performanceMode ? 0 : 6 * enemyDrawScale;
+  const shadowBlur = renderLoad?.veryBusy
+    ? 0
+    : (renderLoad?.performanceMode ? (variantStyle ? 7 : 4) : (variantStyle ? 18 : 10));
+  ctx.shadowBlur = shadowBlur * enemyDrawScale;
+  ctx.shadowOffsetY = renderLoad?.veryBusy ? 0 : (renderLoad?.performanceMode ? 3 : 6) * enemyDrawScale;
   if (variantStyle?.shadowColor && !renderLoad?.busy && !renderLoad?.performanceMode) {
     ctx.filter = `drop-shadow(0 0 ${(enemy.elite ? 16 : 11) * enemyDrawScale}px ${variantStyle.shadowColor})`;
   }
@@ -5124,13 +5265,17 @@ function getExplosionFrameSprite(effect, progress) {
   return frame;
 }
 
-function drawExplosionEffect(ctx, effect, nowMs) {
+function drawExplosionEffect(ctx, effect, nowMs, options = {}) {
   const startedAtMs = Number(effect?.startedAtMs) || nowMs;
   const durationMs = Math.max(1, Number(effect?.durationMs) || SHIP_EXPLOSION_EFFECT_MS);
   const progress = clamp((nowMs - startedAtMs) / durationMs, 0, 1);
   const frame = getExplosionFrameSprite(effect, progress);
   if (!frame?.canvas) {
     drawExplosionFramePrimitives(ctx, effect.x, effect.y, Math.max(4, Number(effect?.radius) || 0), Math.max(1, Number(effect?.level) || 1), Number(effect?.seed) || 0, progress);
+    return;
+  }
+  if (options.compositeReady) {
+    ctx.drawImage(frame.canvas, effect.x - frame.extent, effect.y - frame.extent, frame.size, frame.size);
     return;
   }
   ctx.save();
@@ -5141,12 +5286,21 @@ function drawExplosionEffect(ctx, effect, nowMs) {
 
 function drawBattleEffects(ctx, effects, nowMs, width, height) {
   if (!Array.isArray(effects) || !effects.length) return;
+  let compositeReady = false;
   for (let index = 0; index < effects.length; index += 1) {
     const effect = effects[index];
     if (!effect || effect.removed || !effect.active) continue;
     if (!isDrawAreaVisible(effect?.x, effect?.y, effect?.radius, width, height, 12)) continue;
-    if (effect?.type === 'explosion') drawExplosionEffect(ctx, effect, nowMs);
+    if (effect?.type === 'explosion') {
+      if (!compositeReady) {
+        ctx.save();
+        ctx.globalCompositeOperation = 'lighter';
+        compositeReady = true;
+      }
+      drawExplosionEffect(ctx, effect, nowMs, { compositeReady: true });
+    }
   }
+  if (compositeReady) ctx.restore();
 }
 
 function drawDefeatFlashOverlay(ctx, battle, nowMs, width, height) {
@@ -5269,7 +5423,7 @@ function isDrawAreaVisible(x, y, radius, width, height, margin = 0) {
 }
 
 function getProjectileRenderRadius(projectile) {
-  return Math.max(3, (Number(projectile?.radius) || 0) * PROJECTILE_RENDER_RADIUS_RATIO);
+  return Math.max(3, (Number(projectile?.renderRadius) || 0) || ((Number(projectile?.radius) || 0) * PROJECTILE_RENDER_RADIUS_RATIO));
 }
 
 function drawProjectileGroup(ctx, projectiles, width, height, hasExplosion) {
@@ -5293,7 +5447,7 @@ function drawProjectileGroup(ctx, projectiles, width, height, hasExplosion) {
 function drawProjectiles(ctx, projectiles, width, height, renderLoad = getBattleRenderLoad()) {
   if (!Array.isArray(projectiles) || !projectiles.length) return;
   ctx.save();
-  ctx.lineWidth = renderLoad.performanceMode ? 0.85 : PROJECTILE_RENDER_STROKE_WIDTH;
+  ctx.lineWidth = renderLoad.performanceMode ? 1.08 : PROJECTILE_RENDER_STROKE_WIDTH;
   ctx.fillStyle = '#f9e27d';
   ctx.strokeStyle = 'rgba(120,53,15,0.55)';
   drawProjectileGroup(ctx, projectiles, width, height, false);
@@ -5306,7 +5460,6 @@ function drawProjectiles(ctx, projectiles, width, height, renderLoad = getBattle
 function drawBattle() {
   if (!session || !battleCanvas || !battleCtx) return;
   const nowMs = performance.now();
-  syncCanvasSize({ nowMs });
   const ctx = battleCtx;
   const battle = session.battle;
   const width = battle.canvasWidth;
@@ -5321,9 +5474,10 @@ function drawBattle() {
   for (let index = 0; index < battle.enemies.length; index += 1) {
     const enemy = battle.enemies[index];
     if (!enemy || enemy.removed) continue;
-    const drawRadius = Math.max(enemy.radius, enemy.renderSize * visualScale * 0.68);
-    if (isDrawAreaVisible(enemy.x, enemy.y, drawRadius, width, height, 34)) {
-      drawEnemy(ctx, enemy, nowMs, renderLoad, visualScale);
+    const enemyImage = enemyImages.get(enemy.tier);
+    const metrics = getEnemyRenderMetrics(enemy, enemyImage, visualScale);
+    if (isDrawAreaVisible(enemy.x, enemy.y, metrics.cullRadius, width, height, 34)) {
+      drawEnemy(ctx, enemy, nowMs, renderLoad, visualScale, enemyImage, metrics);
     }
   }
 
@@ -5333,7 +5487,6 @@ function drawBattle() {
 
   if (!isTabletFaceToFaceSession()) {
     drawShipHpGauge(ctx, battle.ship, width);
-    drawWaveOverlay(ctx, battle, width);
   }
 
   drawDefeatFlashOverlay(ctx, battle, nowMs, width, height);

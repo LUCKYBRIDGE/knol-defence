@@ -6450,8 +6450,8 @@ body[data-screen="play"][data-tablet-face="true"] .play-topline .timer-pill {
 
 .battle-panel-coop:not(.battle-panel-tablet) .coop-player-control-grid.player-count-4 .player-upgrade-grid .upgrade-button {
   min-width: 0;
-  min-height: 25px;
-  height: 25px;
+  min-height: 28px;
+  height: 28px;
   padding: 2px 3px;
   place-content: center;
   gap: 1px;
@@ -6506,11 +6506,18 @@ body[data-screen="play"][data-tablet-face="true"] .play-topline .timer-pill {
   }
 
   .battle-panel-coop:not(.battle-panel-tablet) .coop-player-control-grid.player-count-4 .player-upgrade-grid .upgrade-button {
-    min-height: 21px;
-    height: 21px;
+    min-height: 24px;
+    height: 24px;
   }
 
   .battle-panel-coop:not(.battle-panel-tablet) .coop-player-control-grid.player-count-4 .player-upgrade-grid .upgrade-button small {
     display: none;
   }
+}
+
+body[data-screen="play"] .quiz-open-button,
+body[data-screen="play"] .upgrade-button,
+body[data-screen="play"] .choice-button,
+body[data-screen="play"] .quiz-close-button {
+  touch-action: none;
 }
