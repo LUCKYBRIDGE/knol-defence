@@ -2874,6 +2874,12 @@ function wasPointerControlHandledRecently(control, nowMs = performance.now()) {
   return nowMs - handledAtMs < POINTER_CLICK_SUPPRESS_MS;
 }
 
+function consumeBattleInputEvent(event) {
+  if (!event) return;
+  event.preventDefault();
+  event.stopPropagation();
+}
+
 function runBattleActionFromButton(button) {
   if (!button || !session) return false;
   const action = button.dataset.action;
@@ -2908,9 +2914,11 @@ function runBattleActionFromButton(button) {
 function handleBattleAction(event) {
   const quizControl = event.target.closest('[data-choice], [data-quiz-close]');
   if (quizControl && session) {
-    if (wasPointerControlHandledRecently(quizControl)) return;
-    event.preventDefault();
-    event.stopPropagation();
+    if (wasPointerControlHandledRecently(quizControl)) {
+      consumeBattleInputEvent(event);
+      return;
+    }
+    consumeBattleInputEvent(event);
     const battleIndex = getQuizOwnerIndexFromElement(quizControl);
     if (quizControl.matches('[data-choice]')) {
       submitAnswer(quizControl.dataset.choice || '', battleIndex);
@@ -2922,7 +2930,11 @@ function handleBattleAction(event) {
 
   const button = event.target.closest('[data-action]');
   if (!button || !session) return;
-  if (wasPointerControlHandledRecently(button)) return;
+  if (wasPointerControlHandledRecently(button)) {
+    consumeBattleInputEvent(event);
+    return;
+  }
+  consumeBattleInputEvent(event);
   runBattleActionFromButton(button);
 }
 
@@ -2930,8 +2942,7 @@ function handleBattlePointerDown(event) {
   const quizControl = event.target.closest('[data-choice], [data-quiz-close]');
   if (quizControl && session) {
     if (event.pointerType === 'mouse' && event.button !== 0) return;
-    event.preventDefault();
-    event.stopPropagation();
+    consumeBattleInputEvent(event);
     markPointerControlHandled(quizControl);
     const battleIndex = getQuizOwnerIndexFromElement(quizControl);
     if (quizControl.matches('[data-choice]')) {
@@ -2945,8 +2956,7 @@ function handleBattlePointerDown(event) {
   const button = event.target.closest('[data-action]');
   if (!button || !session || (button.dataset.action === 'quiz' && button.disabled)) return;
   if (event.pointerType === 'mouse' && event.button !== 0) return;
-  event.preventDefault();
-  event.stopPropagation();
+  consumeBattleInputEvent(event);
   markPointerControlHandled(button);
   runBattleActionFromButton(button);
 }
