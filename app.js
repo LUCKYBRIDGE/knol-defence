@@ -124,11 +124,11 @@ const ENEMY_ROLE_CONFIG = Object.freeze({
 const ENEMY_STRENGTH_VARIANTS = Object.freeze({
   hardened: Object.freeze({
     label: '강화',
-    hpMulBase: 1.55,
-    hpMulTierStep: 0.03,
-    speedMul: 0.92,
-    touchMulBase: 1.52,
-    touchMulTierStep: 0.03,
+    hpMulBase: 1.46,
+    hpMulTierStep: 0.02,
+    speedMul: 0.94,
+    touchMulBase: 1.38,
+    touchMulTierStep: 0.025,
     visual: Object.freeze({
       label: '강화',
       hpColor: '#f59e0b',
@@ -145,21 +145,21 @@ const ENEMY_STRENGTH_VARIANTS = Object.freeze({
   }),
   elite: Object.freeze({
     label: '특수',
-    hpMulBase: 1.9,
-    hpMulTierStep: 0.12,
-    hpTier10MulBase: 1.08,
-    hpTier10MulStep: 0.1,
-    speedMulBase: 1.14,
-    speedMulTierStep: 0.03,
-    speedTier10MulBase: 1.02,
-    speedTier10MulStep: 0.03,
-    touchMulBase: 1.45,
-    touchMulTierStep: 0.1,
-    touchTier10MulBase: 1.08,
-    touchTier10MulStep: 0.11,
-    renderSizeAdd: 8,
-    renderSizeMulBase: 1.12,
-    renderSizeMulTierStep: 0.03,
+    hpMulBase: 1.76,
+    hpMulTierStep: 0.08,
+    hpTier10MulBase: 1.04,
+    hpTier10MulStep: 0.07,
+    speedMulBase: 1.08,
+    speedMulTierStep: 0.02,
+    speedTier10MulBase: 1.01,
+    speedTier10MulStep: 0.02,
+    touchMulBase: 1.32,
+    touchMulTierStep: 0.07,
+    touchTier10MulBase: 1.04,
+    touchTier10MulStep: 0.07,
+    renderSizeAdd: 6,
+    renderSizeMulBase: 1.09,
+    renderSizeMulTierStep: 0.02,
     visual: Object.freeze({
       label: '특수',
       hpColor: '#dc2626',
@@ -248,18 +248,28 @@ const ENEMY_ASSET_BASE = './assets/battleship/';
 const SHIP_SPRITE_CROP = Object.freeze({ x: 354, y: 43, width: 316, height: 482 });
 
 const ELITE_UNLOCK_TIME_SEC = 180;
-const ENEMY_TIER_UNLOCK_STEP_SEC = 18;
+const ENEMY_TIER_UNLOCK_STEP_SEC = 20;
 const ELITE_TIER_UNLOCK_STEP_SEC = 24;
-const SPAWN_START_COOLDOWN_MS = 1820;
-const SPAWN_MIN_COOLDOWN_MS = 520;
-const SPAWN_DECAY_PER_SEC = 5.2;
+const SPAWN_START_COOLDOWN_MS = 1850;
+const SPAWN_MIN_COOLDOWN_MS = 560;
+const SPAWN_DECAY_PER_SEC = 4.6;
 const HP_GROWTH_STEP_SEC = 24;
-const HP_GROWTH_PER_STEP = 0.12;
+const HP_GROWTH_PER_STEP = 0.1;
 const SPEED_GROWTH_STEP_SEC = 34;
-const SPEED_GROWTH_PER_STEP = 0.09;
+const SPEED_GROWTH_PER_STEP = 0.07;
 const TOUCH_GROWTH_STEP_SEC = 40;
-const TOUCH_GROWTH_PER_STEP = 0.09;
+const TOUCH_GROWTH_PER_STEP = 0.075;
 const SIZE_GROWTH_STEP_SEC = 75;
+const ENEMY_HP_RANDOM_SPREAD = 5;
+const ENEMY_SPEED_RANDOM_SPREAD = 9;
+const ENEMY_FLOW_PULSE_STRENGTH = 0.045;
+const ENEMY_FLOW_PULSE_COOLDOWN_FACTOR = 0.28;
+const ENEMY_LATE_SOFTCAP = 30;
+const ENEMY_MAX_ACTIVE_CAP = 31;
+const ENEMY_BURST_BASE_CHANCE = 0.11;
+const ENEMY_BURST_MAX_CHANCE = 0.32;
+const ENEMY_BURST_GROWTH_SEC = 1280;
+const ENEMY_BURST_LATE_PRESSURE_STEP = 0.018;
 const FLOW_CYCLE_SEC = 54;
 const FLOW_LULL_START_SEC = 10;
 const FLOW_LULL_END_SEC = 20;
@@ -327,6 +337,7 @@ const HUD_IDLE_REFRESH_INTERVAL_MS = 520;
 const CANVAS_SYNC_INTERVAL_MS = 220;
 const CANVAS_MAX_BACKING_PIXELS = 2600000;
 const MIN_START_LOADING_MS = 850;
+const MULTI_START_LOADING_MS = 1300;
 const SPAWN_PLAN_BUFFER = 96;
 const ENEMY_SPATIAL_CELL_SIZE = 96;
 const BUSY_RENDER_ENEMY_COUNT = 14;
@@ -371,6 +382,8 @@ const elements = {
   gugudanReportBody: $('#gugudan-report-body'),
   fullscreenToggles: $$('.fullscreen-toggle'),
   displayModeToggle: $('#display-mode-toggle'),
+  initialDisplayModeModal: $('#initial-display-mode-modal'),
+  initialDisplayModeOptions: $('#initial-display-mode-options'),
   playerOptions: $('#player-options'),
   startButton: $('#start-button'),
   setupError: $('#setup-error'),
@@ -390,6 +403,7 @@ const elements = {
   divisionMergeRecordsFile: $('#division-merge-records-file'),
   gugudanStatusPanel: $('#gugudan-status-panel'),
   startLoading: $('#start-loading'),
+  startLoadingGrid: $('#start-loading-grid'),
   startLoadingText: $('#start-loading-text'),
   startLoadingFill: $('#start-loading-fill'),
   startLoadingPercent: $('#start-loading-percent'),
@@ -434,6 +448,8 @@ let selectedMinutes = 2;
 let setupMessageKind = '';
 let startLoading = false;
 let combatAssetsWarmed = false;
+let initialDisplayModePromptShown = false;
+let startLoadingLayoutSignature = '';
 let activeWeaknessPractice = null;
 let session = null;
 let battleCanvas = null;
@@ -1183,7 +1199,7 @@ function showScreen(name) {
   elements.setupScreen.classList.toggle('is-hidden', name !== 'setup');
   elements.playScreen.classList.toggle('is-hidden', name !== 'play');
   elements.resultScreen.classList.toggle('is-hidden', name !== 'result');
-  if (elements.displayModeToggle) elements.displayModeToggle.disabled = name !== 'setup';
+  syncDisplayModeToggleLock();
 }
 
 function getPackLabel(packId) {
@@ -1236,8 +1252,57 @@ function getDisplayModeLabel(displayModeId = selectedDisplayMode, resolvedMode =
 
 function getDisplayModeButtonLabel(displayModeId = selectedDisplayMode, resolvedMode = getResolvedDisplayMode(displayModeId)) {
   const resolvedLabel = DISPLAY_MODES.find((mode) => mode.id === resolvedMode)?.label || '웹';
-  if (displayModeId === 'auto') return `화면 자동:${resolvedLabel}`;
-  return `화면 ${resolvedLabel}`;
+  if (displayModeId === 'auto') return `모드:자동(${resolvedLabel})`;
+  return `모드:${resolvedLabel}`;
+}
+
+function getInitialDisplayModeSelection(choice) {
+  const normalized = String(choice || '').trim();
+  if (normalized === 'mobile' || normalized === 'tablet') return normalized;
+  if (normalized === 'wide') {
+    return detectDisplayMode() === 'board' ? 'board' : 'web';
+  }
+  return 'web';
+}
+
+function setInitialDisplayModeModalOpen(open) {
+  const visible = Boolean(open && elements.initialDisplayModeModal);
+  elements.initialDisplayModeModal?.classList.toggle('is-hidden', !visible);
+  elements.initialDisplayModeModal?.setAttribute('aria-hidden', String(!visible));
+  document.body.dataset.initialDisplayModePrompt = String(visible);
+  if (visible) {
+    window.setTimeout(() => {
+      const firstButton = $('[data-initial-display-mode]', elements.initialDisplayModeModal);
+      firstButton?.focus();
+    }, 0);
+  }
+}
+
+function isDisplayModeChangeLocked() {
+  return Boolean(session && !session.endedAt) || document.body.dataset.screen !== 'setup';
+}
+
+function syncDisplayModeToggleLock() {
+  if (!elements.displayModeToggle) return;
+  const locked = isDisplayModeChangeLocked();
+  elements.displayModeToggle.disabled = locked;
+  elements.displayModeToggle.setAttribute('aria-disabled', String(locked));
+}
+
+function showInitialDisplayModePrompt() {
+  if (initialDisplayModePromptShown || session || document.body.dataset.screen !== 'setup') return;
+  initialDisplayModePromptShown = true;
+  setInitialDisplayModeModalOpen(true);
+}
+
+function applyInitialDisplayModeChoice(choice) {
+  if (isDisplayModeChangeLocked()) return;
+  const nextMode = getInitialDisplayModeSelection(choice);
+  selectedDisplayMode = nextMode;
+  updateSetupSummary();
+  setInitialDisplayModeModalOpen(false);
+  const label = getDisplayModeLabel(nextMode, getResolvedDisplayMode(nextMode));
+  setSetupMessage(`${label} 화면에 맞춰 시작 설정을 정리했습니다.`, 'note');
 }
 
 function getViewportMetrics() {
@@ -1268,7 +1333,7 @@ function syncTabletFaceLayoutBasis() {
 }
 
 function selectNextDisplayMode() {
-  if (session && !session.endedAt) return;
+  if (isDisplayModeChangeLocked()) return;
   const index = DISPLAY_MODES.findIndex((mode) => mode.id === selectedDisplayMode);
   selectedDisplayMode = DISPLAY_MODES[(index + 1 + DISPLAY_MODES.length) % DISPLAY_MODES.length]?.id || 'auto';
   updateSetupSummary();
@@ -1309,14 +1374,72 @@ function setSetupMessage(message = '', kind = '') {
   elements.setupError.classList.toggle('is-error', kind === 'error');
 }
 
+function isTabletFaceLoadingLayout(playerCount = selectedPlayers) {
+  return Boolean(getResolvedDisplayMode() === 'tablet' && selectedMode === 'coop' && playerCount === 2);
+}
+
+function getStartLoadingPlayerOrder(playerCount = selectedPlayers) {
+  const safeCount = clamp(Math.round(Number(playerCount) || 1), 1, 4);
+  if (isTabletFaceLoadingLayout(safeCount)) return [1, 0];
+  return Array.from({ length: safeCount }, (_, index) => index);
+}
+
+function renderStartLoadingLayout() {
+  if (!elements.startLoading || !elements.startLoadingGrid) return;
+  const playerCount = clamp(Math.round(Number(selectedPlayers) || 1), 1, 4);
+  const tabletFace = isTabletFaceLoadingLayout(playerCount);
+  const signature = `${playerCount}:${tabletFace ? 'tablet-face' : 'standard'}`;
+  elements.startLoading.classList.toggle('is-multi', playerCount > 1);
+  elements.startLoading.classList.toggle('is-tablet-face', tabletFace);
+  elements.startLoading.dataset.loadingPlayers = String(playerCount);
+  [1, 2, 3, 4].forEach((count) => {
+    elements.startLoading.classList.toggle(`player-count-${count}`, playerCount === count);
+  });
+  elements.startLoading.style.setProperty('--loading-players', String(playerCount));
+  if (startLoadingLayoutSignature === signature && elements.startLoadingGrid.children.length) return;
+  startLoadingLayoutSignature = signature;
+  const order = getStartLoadingPlayerOrder(playerCount);
+  elements.startLoadingGrid.innerHTML = order.map((playerIndex, orderIndex) => {
+    const flipped = tabletFace && orderIndex === 0;
+    return `
+      <div class="start-loading-card${flipped ? ' is-flipped' : ''}" data-loading-player="${playerIndex + 1}">
+        <span class="start-loading-kicker">${playerCount > 1 ? `${playerIndex + 1}P 전장 준비 중` : '전장 준비 중'}</span>
+        <b class="start-loading-message">게임 자산을 미리 불러오고 있습니다</b>
+        <p>퀴즈 버튼을 눌러 퀴즈를 풀고 거북선을 레벨업시켜 강화하세요.</p>
+        <div class="start-loading-bar" aria-hidden="true"><i class="start-loading-fill"></i></div>
+        <em class="start-loading-percent">0%</em>
+      </div>
+    `;
+  }).join('');
+}
+
+function updateStartLoadingPanels(message = '게임 자산을 미리 불러오고 있습니다', progress = 0) {
+  const safeProgress = clamp(Number(progress) || 0, 0, 1);
+  const percentText = `${Math.round(safeProgress * 100)}%`;
+  $$('.start-loading-message', elements.startLoading).forEach((node) => {
+    node.textContent = message;
+  });
+  $$('.start-loading-fill', elements.startLoading).forEach((node) => {
+    node.style.width = percentText;
+  });
+  $$('.start-loading-percent', elements.startLoading).forEach((node) => {
+    node.textContent = percentText;
+  });
+}
+
 function setStartLoading(active, message = '게임 자산을 미리 불러오고 있습니다', progress = 0) {
   startLoading = Boolean(active);
   const safeProgress = clamp(Number(progress) || 0, 0, 1);
   elements.startLoading?.classList.toggle('is-hidden', !startLoading);
   elements.startLoading?.setAttribute('aria-hidden', String(!startLoading));
-  if (elements.startLoadingText) elements.startLoadingText.textContent = message;
-  if (elements.startLoadingFill) elements.startLoadingFill.style.width = `${Math.round(safeProgress * 100)}%`;
-  if (elements.startLoadingPercent) elements.startLoadingPercent.textContent = `${Math.round(safeProgress * 100)}%`;
+  document.documentElement.classList.toggle('start-loading-open', startLoading);
+  document.body.classList.toggle('start-loading-open', startLoading);
+  if (startLoading) {
+    renderStartLoadingLayout();
+    updateStartLoadingPanels(message, safeProgress);
+  } else {
+    startLoadingLayoutSignature = '';
+  }
   elements.startButton.disabled = startLoading || !selectedMinutes;
 }
 
@@ -1423,7 +1546,8 @@ function updateSetupSummary(options = {}) {
     elements.displayModeToggle.dataset.displayMode = selectedDisplayMode;
     elements.displayModeToggle.dataset.resolvedDisplayMode = resolvedMode;
     elements.displayModeToggle.setAttribute('aria-label', `${buttonLabel}. 누르면 화면 모드가 바뀝니다.`);
-    elements.displayModeToggle.title = '화면 모드 전환: 자동 → 모바일 → 태블릿 → 전자칠판 → 웹';
+    elements.displayModeToggle.title = '게임 시작 전 화면 모드 전환: 자동 → 모바일 → 태블릿 → 전자칠판 → 웹';
+    syncDisplayModeToggleLock();
   }
   if (elements.playMinutes) {
     elements.playMinutes.value = selectedMinutes ? String(selectedMinutes) : '';
@@ -1766,6 +1890,7 @@ async function warmupQuizAssets(questions, updateProgress) {
 async function prepareGameStart() {
   const startedAtMs = performance.now();
   const updateProgress = (message, progress) => setStartLoading(true, message, progress);
+  const minimumLoadingMs = selectedPlayers > 1 ? MULTI_START_LOADING_MS : MIN_START_LOADING_MS;
   const weaknessPractice = getActiveWeaknessPractice(selectedPackId);
   updateProgress(weaknessPractice ? '취약점 연습 문제를 준비하는 중' : '퀴즈 데이터를 불러오는 중', 0.06);
   const questions = await loadPack(selectedPackId);
@@ -1773,7 +1898,7 @@ async function prepareGameStart() {
   await warmupCombatAssets(updateProgress);
   await warmupQuizAssets(questions, updateProgress);
   updateProgress('전장 배치를 최종 준비하는 중', 0.96);
-  const remainingMs = MIN_START_LOADING_MS - (performance.now() - startedAtMs);
+  const remainingMs = minimumLoadingMs - (performance.now() - startedAtMs);
   if (remainingMs > 0) await wait(remainingMs);
   updateProgress('전장 준비 완료', 1);
   await nextPaint();
@@ -2259,7 +2384,7 @@ function getEliteUnlockedTier(elapsedSec) {
 
 function shouldSpawnEliteEnemy(elapsedSec, eliteTier, roll01 = null) {
   if (eliteTier <= 0) return false;
-  const chance = clamp(0.08 + ((elapsedSec - ELITE_UNLOCK_TIME_SEC) / 280) * 0.5, 0.08, 0.55);
+  const chance = clamp(0.06 + ((elapsedSec - ELITE_UNLOCK_TIME_SEC) / 360) * 0.32, 0.06, 0.38);
   return ((roll01 ?? battleRandom()) || 0) < chance;
 }
 
@@ -2271,7 +2396,7 @@ function getLateWavePressure(elapsedSec) {
 
 function getFlowState(elapsedSec, target = null) {
   const cyclePos = ((elapsedSec % FLOW_CYCLE_SEC) + FLOW_CYCLE_SEC) % FLOW_CYCLE_SEC;
-  const pulse = Math.sin(elapsedSec * 0.45) * 0.08;
+  const pulse = Math.sin(elapsedSec * 0.38) * ENEMY_FLOW_PULSE_STRENGTH;
   const latePressure = getLateWavePressure(elapsedSec);
   const flow = target || {};
   let label = '보통';
@@ -2282,42 +2407,42 @@ function getFlowState(elapsedSec, target = null) {
 
   if (cyclePos >= FLOW_LULL_START_SEC && cyclePos < FLOW_LULL_END_SEC) {
     label = '완급-완';
-    spawnCooldownMul = 1.35;
-    speedMul = 0.9;
-    capBonus = -2;
-    hardenedBonus = -0.03;
+    spawnCooldownMul = 1.25;
+    speedMul = 0.94;
+    capBonus = -1;
+    hardenedBonus = -0.015;
   } else if (cyclePos >= FLOW_SURGE_START_SEC && cyclePos < FLOW_SURGE_END_SEC) {
     label = '러시';
-    spawnCooldownMul = 0.68;
-    speedMul = 1.18;
-    capBonus = 5;
-    hardenedBonus = 0.12;
+    spawnCooldownMul = 0.78;
+    speedMul = 1.1;
+    capBonus = 3;
+    hardenedBonus = 0.065;
   } else if (cyclePos >= FLOW_SURGE_END_SEC && cyclePos < FLOW_AFTERSHOCK_END_SEC) {
     label = '압박';
-    spawnCooldownMul = 0.84;
-    speedMul = 1.08;
-    capBonus = 2;
-    hardenedBonus = 0.06;
+    spawnCooldownMul = 0.9;
+    speedMul = 1.04;
+    capBonus = 1;
+    hardenedBonus = 0.035;
   }
 
   if (latePressure >= 1) {
     label = label === '보통' ? '후반 압박' : `${label} · 후반`;
-    spawnCooldownMul *= 0.94;
-    speedMul *= 1.03;
-    capBonus += 2;
-    hardenedBonus += 0.04;
+    spawnCooldownMul *= 0.96;
+    speedMul *= 1.02;
+    capBonus += 1;
+    hardenedBonus += 0.025;
   }
   if (latePressure >= 2) {
     label = label.includes('후반') ? '최종 압박' : `${label} · 최종`;
-    spawnCooldownMul *= 0.9;
-    speedMul *= 1.04;
-    capBonus += 2;
-    hardenedBonus += 0.05;
+    spawnCooldownMul *= 0.94;
+    speedMul *= 1.025;
+    capBonus += 1;
+    hardenedBonus += 0.03;
   }
 
   flow.label = label;
-  flow.spawnCooldownMul = clamp(spawnCooldownMul * (1 - pulse * 0.45), 0.55, 1.55);
-  flow.speedMul = clamp(speedMul * (1 + pulse), 0.82, 1.3);
+  flow.spawnCooldownMul = clamp(spawnCooldownMul * (1 - pulse * ENEMY_FLOW_PULSE_COOLDOWN_FACTOR), 0.68, 1.42);
+  flow.speedMul = clamp(speedMul * (1 + pulse), 0.9, 1.18);
   flow.capBonus = capBonus;
   flow.hardenedBonus = hardenedBonus;
   return flow;
@@ -2659,9 +2784,14 @@ function setUpgradeButton(button, disabled, title, meta, cost) {
   if (!button) return;
   const compact = Boolean(button.closest('.battle-panel-tablet'));
   const detail = compact ? cost : `${meta} · ${cost}`;
+  const shortTitle = String(title || '').trim().slice(0, 1);
   const nextDisabled = Boolean(disabled);
   if (button.disabled) button.disabled = false;
   button.classList.toggle('is-disabled', nextDisabled);
+  button.dataset.upgradeTitle = title;
+  button.dataset.upgradeMeta = meta;
+  button.dataset.upgradeCost = cost;
+  button.dataset.upgradeShort = shortTitle;
   const disabledText = String(nextDisabled);
   if (button.getAttribute('aria-disabled') !== disabledText) {
     button.setAttribute('aria-disabled', disabledText);
@@ -2675,7 +2805,7 @@ function setUpgradeButton(button, disabled, title, meta, cost) {
     button.dataset.renderSignature = signature;
     button.innerHTML = `
       <span>${escapeHtml(title)}</span>
-      <small>${escapeHtml(detail)}</small>
+      <small data-cost="${escapeHtml(cost)}">${escapeHtml(detail)}</small>
     `;
   }
 }
@@ -3131,6 +3261,7 @@ function closeQuizModal(battleIndex = currentBattleIndex, options = {}) {
     return;
   } else {
     const root = getBattleRoot(battleIndex);
+    root?.classList.remove('is-quiz-open');
     const layer = $('[data-ref="battle-quiz-layer"]', root);
     if (layer) {
       layer.classList.add('is-hidden');
@@ -3354,6 +3485,14 @@ function renderQuizSurfaceInto(container, playerIndex, isOpen) {
   scheduleQuizTextFit(container);
 }
 
+function setQuizLayerContentFlags(layer, question) {
+  if (!layer) return;
+  const hasQuestionImage = Boolean(question?.hasQuestionImage && question?.image);
+  const hasChoiceImages = Boolean(question?.choices?.some(isQuizImageAsset));
+  layer.classList.toggle('has-question-image', hasQuestionImage);
+  layer.classList.toggle('has-choice-images', hasChoiceImages);
+}
+
 function ensureCoopQuizSplitGrid(overlay) {
   const count = session?.players?.length || 1;
   const expectedClass = `coop-quiz-split-grid player-count-${count}`;
@@ -3431,6 +3570,8 @@ function renderQuestion(battleIndex = currentBattleIndex) {
   const root = getBattleRoot(battleIndex);
   const layer = $('[data-ref="battle-quiz-layer"]', root);
   if (!layer) return;
+  root.classList.add('is-quiz-open');
+  setQuizLayerContentFlags(layer, quizState.currentQuestion);
   layer.classList.remove('is-hidden');
   layer.innerHTML = buildQuizCardHtml(battleIndex);
   scheduleQuizTextFit(layer);
@@ -3664,14 +3805,16 @@ function getNextSpawnEventPlan() {
   return battle.spawnPlan[battle.spawnPlanIndex++];
 }
 
-function getEnemySpawnPoint(radius, plan = null) {
+function getEnemySpawnPoint(radius, plan = null, spawnIndex = 0) {
   const battle = session.battle;
   const width = battle.canvasWidth;
   const height = battle.canvasHeight;
   const offset = Math.max(48, Math.round(radius + 24));
-  const baseSide = Math.floor(((plan?.sideRoll ?? battleRandom()) || 0) * 4);
+  const sideRoll = (((plan?.sideRoll ?? battleRandom()) || 0) + Math.max(0, spawnIndex) * 0.5) % 1;
+  const baseSide = Math.floor(sideRoll * 4);
   const side = (baseSide + (battle.playerIndex % 4)) % 4;
-  const rawLane = 0.08 + ((plan?.laneRoll ?? battleRandom()) || 0) * 0.84;
+  const laneRoll = (((plan?.laneRoll ?? battleRandom()) || 0) + Math.max(0, spawnIndex) * 0.23) % 1;
+  const rawLane = 0.08 + laneRoll * 0.84;
   const lane = battle.playerIndex % 2 === 0 ? rawLane : 1 - rawLane;
   if (side === 0) return { x: lane * width, y: -offset };
   if (side === 1) return { x: width + offset, y: lane * height };
@@ -3710,8 +3853,8 @@ function createEnemyFromDefinition(def, elapsedSec, options = {}) {
   const speedScale = 1 + Math.floor(elapsedSec / SPEED_GROWTH_STEP_SEC) * SPEED_GROWTH_PER_STEP;
   const touchScale = 1 + Math.floor(elapsedSec / TOUCH_GROWTH_STEP_SEC) * TOUCH_GROWTH_PER_STEP;
   const tierStrengthStep = def.tier - 1;
-  let hp = Math.round((def.baseHp + ((plan?.hpRoll ?? battleRandom()) || 0) * 8) * hpScale);
-  let speed = (def.baseSpeed + ((plan?.speedRoll ?? battleRandom()) || 0) * 14) * speedScale;
+  let hp = Math.round((def.baseHp + ((plan?.hpRoll ?? battleRandom()) || 0) * ENEMY_HP_RANDOM_SPREAD) * hpScale);
+  let speed = (def.baseSpeed + ((plan?.speedRoll ?? battleRandom()) || 0) * ENEMY_SPEED_RANDOM_SPREAD) * speedScale;
   let touchDamage = Math.round(def.baseTouchDamage * touchScale);
   let renderSize = (def.baseSize + Math.floor(elapsedSec / SIZE_GROWTH_STEP_SEC)) * ENEMY_RENDER_SCALE;
 
@@ -3778,7 +3921,7 @@ function createEnemyFromDefinition(def, elapsedSec, options = {}) {
     : (roleConfig.role === 'armored' ? 0.94 : 1);
 
   const radius = Math.max(12, Math.round(renderSize * (elite ? 0.31 : 0.27) * ENEMY_COLLISION_RADIUS_SCALE));
-  const spawnPoint = getEnemySpawnPoint(radius, plan);
+  const spawnPoint = getEnemySpawnPoint(radius, plan, options.spawnIndex);
   battle.spawnSerial += 1;
   const enemy = acquireEnemy(battle);
   Object.assign(enemy, {
@@ -3810,10 +3953,10 @@ function createEnemyFromDefinition(def, elapsedSec, options = {}) {
 
 function shouldSpawnHardenedEnemy(elapsedSec, flow, def, roll01 = null) {
   if (elapsedSec < 45) return false;
-  const tierBonus = Math.max(0, def.tier - 1) * 0.008;
-  const elapsedBonus = clamp((elapsedSec - 45) / 360, 0, 1) * 0.18;
+  const tierBonus = Math.max(0, def.tier - 1) * 0.006;
+  const elapsedBonus = clamp((elapsedSec - 45) / 420, 0, 1) * 0.12;
   const flowBonus = Number(flow?.hardenedBonus) || 0;
-  const chance = clamp(0.045 + tierBonus + elapsedBonus + flowBonus, 0.01, 0.42);
+  const chance = clamp(0.035 + tierBonus + elapsedBonus + flowBonus, 0.005, 0.3);
   return ((roll01 ?? battleRandom()) || 0) < chance;
 }
 
@@ -3822,13 +3965,22 @@ function spawnEnemy(flow) {
   const elapsedSec = battle.waves.elapsedSec;
   const softCap = elapsedSec < 60
     ? EARLY_SOFTCAP_T1
-    : (elapsedSec < 140 ? EARLY_SOFTCAP_T2 : (elapsedSec < 240 ? EARLY_SOFTCAP_T3 : 34));
-  const cap = Math.max(5, softCap + (Number(flow?.capBonus) || 0) + getLateWavePressure(elapsedSec));
+    : (elapsedSec < 140 ? EARLY_SOFTCAP_T2 : (elapsedSec < 240 ? EARLY_SOFTCAP_T3 : ENEMY_LATE_SOFTCAP));
+  const cap = clamp(
+    softCap + (Number(flow?.capBonus) || 0) + getLateWavePressure(elapsedSec),
+    5,
+    ENEMY_MAX_ACTIVE_CAP
+  );
   if (battle.enemies.length >= cap) return;
 
   const spawnPlan = getNextSpawnEventPlan();
-  const burstChance = clamp(0.16 + (elapsedSec / 960) + getLateWavePressure(elapsedSec) * 0.03, 0.16, 0.5);
-  const spawnCount = ((spawnPlan?.burstRoll ?? battleRandom()) || 0) < burstChance ? 2 : 1;
+  const burstChance = clamp(
+    ENEMY_BURST_BASE_CHANCE + (elapsedSec / ENEMY_BURST_GROWTH_SEC) + getLateWavePressure(elapsedSec) * ENEMY_BURST_LATE_PRESSURE_STEP,
+    ENEMY_BURST_BASE_CHANCE,
+    ENEMY_BURST_MAX_CHANCE
+  );
+  const remainingSlots = cap - battle.enemies.length;
+  const spawnCount = remainingSlots >= 2 && ((spawnPlan?.burstRoll ?? battleRandom()) || 0) < burstChance ? 2 : 1;
   for (let index = 0; index < spawnCount; index += 1) {
     if (battle.enemies.length >= cap) break;
     const enemyPlan = spawnPlan?.enemies?.[index] || null;
@@ -3840,7 +3992,8 @@ function spawnEnemy(flow) {
       elite,
       hardened: !elite && shouldSpawnHardenedEnemy(elapsedSec, flow, def, enemyPlan?.hardenedRoll),
       flowSpeedMul: Number(flow?.speedMul) || 1,
-      plan: enemyPlan
+      plan: enemyPlan,
+      spawnIndex: index
     });
     battle.enemies.push(enemy);
   }
@@ -4695,7 +4848,7 @@ function updateBattle(dtSec, nowMs) {
   battle.flow = getFlowState(battle.waves.elapsedSec, battle.flow);
   const activeSpawnCooldown = clamp(
     battle.spawnCooldownMs * battle.flow.spawnCooldownMul,
-    Math.max(280, SPAWN_MIN_COOLDOWN_MS * 0.55),
+    Math.max(420, SPAWN_MIN_COOLDOWN_MS * 0.74),
     SPAWN_START_COOLDOWN_MS * 1.75
   );
   if (isShipRespawning(nowMs)) {
@@ -6857,6 +7010,9 @@ function finishSession() {
     layer.classList.add('is-hidden');
     layer.innerHTML = '';
   });
+  $$('.battle-panel', elements.gameStage).forEach((panel) => {
+    panel.classList.remove('is-quiz-open');
+  });
   $$('.coop-quiz-overlay', elements.gameStage).forEach((layer) => {
     layer.classList.add('is-hidden');
     layer.innerHTML = '';
@@ -6900,6 +7056,9 @@ function abandonSession() {
   $$('.battle-quiz-layer', elements.gameStage).forEach((layer) => {
     layer.classList.add('is-hidden');
     layer.innerHTML = '';
+  });
+  $$('.battle-panel', elements.gameStage).forEach((panel) => {
+    panel.classList.remove('is-quiz-open');
   });
   $$('.coop-quiz-overlay', elements.gameStage).forEach((layer) => {
     layer.classList.add('is-hidden');
@@ -6954,6 +7113,11 @@ function bindEvents() {
     }
   });
 
+  elements.initialDisplayModeOptions?.addEventListener('click', (event) => {
+    const button = event.target.closest('[data-initial-display-mode]');
+    if (!button) return;
+    applyInitialDisplayModeChoice(button.dataset.initialDisplayMode);
+  });
   elements.displayModeToggle?.addEventListener('click', selectNextDisplayMode);
   elements.fullscreenToggles.forEach((button) => {
     button.addEventListener('click', toggleFullscreen);
@@ -7268,3 +7432,4 @@ window.__KNOLQUIZ_TEST__ = {
 renderSetupControls();
 bindEvents();
 updateFullscreenControls();
+showInitialDisplayModePrompt();
