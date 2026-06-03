@@ -27,7 +27,12 @@
 ## Change Safety Rules
 - Keep changes inside this project directory unless the user explicitly expands scope.
 - Do not reference `../knolquiz-runtime`, `../knolquiz-local-lite`, or any sibling app at runtime.
-- Do not add Supabase, auth, classroom mode, ranking mode, saved records, `localStorage`, or IndexedDB.
+- Do not add Supabase, auth, classroom mode, ranking mode, or IndexedDB.
+- Local learning records are allowed only for the explicit 1-player 구구단/나눗셈 record workflow:
+  - use `localStorage` only for student-number keyed 구구단/나눗셈 practice aggregates
+  - require user confirmation before writing/replacing local learning records
+  - keep CSV backup/restore/merge compatible with `knolquiz-jumpmap-local`
+  - do not store gameplay sessions, rankings, classes, auth, or unrelated data
 - All sessions must end by the selected 1-10 minute timer.
 - Result screens show only the current in-memory session.
 - Do not add Jumpmap code, character assets, or Jumpmap platform assets to this project.
